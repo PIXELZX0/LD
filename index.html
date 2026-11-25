@@ -7,9 +7,8 @@
 <meta name="description" content="Love Design — 사랑을 당신에 맞게 조각해드립니다. 연애 고민상담, 곧 문을 엽니다.">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♥</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
   :root {
     color-scheme: light;
@@ -27,7 +26,7 @@
     min-height: 100svh;
     background: var(--bg);
     color: var(--ink);
-    font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    font-family: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     padding: 64px 28px;
     overflow: hidden;
@@ -40,10 +39,9 @@
     pointer-events: none;
   }
   .frame text {
-    font-family: "Playfair Display", Georgia, serif;
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: .08em;
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: .06em;
     fill: var(--ink);
   }
   .frame .h { fill: var(--rose); }
@@ -53,11 +51,10 @@
 
   .ld {
     margin: 0;
-    font-family: "Playfair Display", Georgia, serif;
     font-weight: 900;
     font-size: clamp(6rem, 30vw, 13rem);
     line-height: .9;
-    letter-spacing: -.02em;
+    letter-spacing: -.06em;
     position: relative;
     display: inline-block;
   }
@@ -70,12 +67,11 @@
 
   .name {
     margin: 18px 0 0;
-    font-family: "Playfair Display", Georgia, serif;
-    font-weight: 700;
-    font-size: clamp(1.25rem, 4.6vw, 1.9rem);
-    letter-spacing: .12em;
+    font-weight: 600;
+    font-size: clamp(1.2rem, 4.4vw, 1.75rem);
+    letter-spacing: .04em;
   }
-  .name b { color: var(--rose); font-weight: 900; }
+  .name b { color: var(--rose); font-weight: 800; }
 
   .tag {
     margin: 8px 0 0;
