@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOVEOUR — Your Love, Our Design</title>
+<meta name="description" content="LOVEOUR is a design studio. Website coming soon.">
+<meta name="theme-color" content="#0d0d0f">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♥</text></svg>">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; place-items: center;
+    background: radial-gradient(120% 120% at 50% 0%, #1b1b22 0%, #0d0d0f 55%, #08080a 100%);
+    color: #f4f1ec;
+    font-family: "Helvetica Neue", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 24px;
+  }
+  main { text-align: center; max-width: 720px; }
+  .mark {
+    font-size: clamp(2.6rem, 11vw, 6rem);
+    letter-spacing: .22em;
+    font-weight: 300;
+    text-indent: .22em;
+    margin: 0;
+  }
+  .mark span { color: #e0787f; }
+  .rule {
+    width: 56px; height: 1px; margin: 28px auto;
+    background: linear-gradient(90deg, transparent, #6f6a66, transparent);
+  }
+  .tag {
+    font-size: clamp(.95rem, 3.2vw, 1.15rem);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: #b9b2aa;
+    margin: 0;
+  }
+  .sub { margin: 18px 0 0; color: #7d7770; font-size: .9rem; letter-spacing: .04em; }
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 20px;
+    text-align: center; font-size: .75rem; letter-spacing: .12em;
+    color: #5c5751; text-transform: uppercase;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    main { animation: rise .9s cubic-bezier(.2,.7,.2,1) both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+</head>
+<body>
+  <main>
+    <h1 class="mark">LOVE<span>O</span>UR</h1>
+    <div class="rule"></div>
+    <p class="tag">Your love, our design</p>
+    <p class="sub">Something beautiful is on the way.</p>
+  </main>
+  <footer>yourloveour.design · yourloveourdesign.com</footer>
+</body>
+</html>
