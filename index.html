@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LD — Love Design · Your Love Our Design</title>
-<meta name="description" content="Love Design — 사랑을 당신에 맞게 조각해드립니다. 고민상담, 곧 문을 엽니다.">
+<meta name="description" content="Love Design — 사랑을 당신에 맞게 조각해드립니다. 모든 분야의 고민상담, 곧 문을 엽니다.">
 <meta name="theme-color" content="#ffffff">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♥</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♡</text></svg>">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
@@ -32,7 +32,7 @@
     overflow: hidden;
   }
 
-  /* 테두리를 도는 LD ♥ 루프 */
+  /* 테두리를 도는 LD ♡ 루프 */
   .frame {
     position: fixed; inset: 0;
     width: 100%; height: 100%;
@@ -44,7 +44,7 @@
     letter-spacing: .06em;
     fill: var(--ink);
   }
-  .frame .h { fill: var(--rose); }
+  .frame .h { fill: var(--ink); }
   .frame .track { fill: none; stroke: none; }
 
   main { text-align: center; max-width: 720px; position: relative; }
@@ -62,7 +62,8 @@
     position: absolute;
     top: .02em; right: -.28em;
     font-size: .26em;
-    color: var(--rose);
+    font-weight: 400;
+    color: var(--ink);
   }
 
   .name {
@@ -146,12 +147,10 @@
     will-change: transform;
     cursor: default;
   }
-  .ld .heart { transition: color .3s; }
-  .ld:hover .heart { color: #ff2d55; }
   .spark {
     position: fixed; left: 0; top: 0; z-index: 2;
     pointer-events: none; user-select: none;
-    color: var(--rose);
+    color: var(--ink);
     font-size: var(--s, 14px);
     line-height: 1;
     animation: float var(--d, .9s) ease-out forwards;
@@ -170,12 +169,12 @@
 
   <div class="glow" aria-hidden="true"></div>
   <main>
-    <div class="stage"><h1 class="ld">LD<span class="heart" aria-hidden="true">♥</span></h1></div>
+    <div class="stage"><h1 class="ld">LD<span class="heart" aria-hidden="true">♡</span></h1></div>
     <p class="name"><b>L</b>ove <b>D</b>esign</p>
     <p class="tag">Your Love Our Design</p>
     <div class="rule"></div>
     <p class="copy">사랑을 <em>당신에 맞게</em> 조각해드립니다</p>
-    <div class="soon"><i></i>고민상담 서비스, 지금 준비하고 있어요</div>
+    <div class="soon"><i></i>모든 분야의 고민상담, 지금 준비하고 있어요</div>
   </main>
   <footer>yourloveour.design</footer>
 
@@ -184,7 +183,7 @@
   var svg = document.querySelector('.frame');
   var path = document.getElementById('loop');
   var ring = document.getElementById('ring');
-  var UNIT = 'LD ♥ ';
+  var UNIT = 'LD ♡ ';
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var per = 0, unitLen = 0, offset = 0, last = 0;
   var SPEED = 40; // px per second
@@ -205,7 +204,7 @@
       ' V' + (y0 + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x0 + r) + ' ' + y0 + ' Z');
     per = path.getTotalLength();
 
-    // 한 단위(LD ♥) 길이를 재고, 둘레에 정수 개가 딱 맞도록 간격을 조정한다
+    // 한 단위(LD ♡) 길이를 재고, 둘레에 정수 개가 딱 맞도록 간격을 조정한다
     ring.textContent = '';
     appendUnit();
     var natural = ring.getComputedTextLength() || 60;
@@ -224,7 +223,7 @@
   function appendUnit() {
     var ns = 'http://www.w3.org/2000/svg';
     var a = document.createElementNS(ns, 'tspan'); a.textContent = 'LD ';
-    var b = document.createElementNS(ns, 'tspan'); b.textContent = '♥ '; b.setAttribute('class', 'h');
+    var b = document.createElementNS(ns, 'tspan'); b.textContent = '♡ '; b.setAttribute('class', 'h');
     ring.appendChild(a); ring.appendChild(b);
   }
 
@@ -269,7 +268,7 @@
   function spark(x, y, opts) {
     var el = document.createElement('span');
     el.className = 'spark';
-    el.textContent = '♥';
+    el.textContent = '♡';
     el.style.left = x + 'px';
     el.style.top = y + 'px';
     el.style.setProperty('--s', opts.size + 'px');
