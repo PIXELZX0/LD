@@ -1,0 +1,59 @@
+# main 에 올라오는 코드를 검사하고, 통과했을 때만 Coolify 로 배포한다.
+# (Coolify 에는 "Wait for CI" 가 없어서 배포를 GitHub Actions 가 직접 호출한다.
+#  그래서 Coolify 쪽 push 자동배포는 꺼져 있어야 한다.)
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 검사
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 페이지·이미지 구성 확인
+        run: |
+          test -s index.html
+          test -s Dockerfile
+          test -s nginx.conf
+          grep -qi "<html" index.html
+          docker build -t ld-test:ci . >/dev/null
+          docker run -d --rm --name ld-ci -p 8080:80 ld-test:ci
+          for i in $(seq 1 15); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          test "$code" = "200" || { echo "::error::이미지가 200 을 반환하지 않아요 ($code)"; docker logs ld-ci; exit 1; }
+          curl -s http://127.0.0.1:8080/ | grep -q "LOVEOUR"
+
+  deploy:
+    name: Coolify 배포
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Coolify 앱 배포 (ld-web)
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          if [ -z "$COOLIFY_TOKEN" ]; then
+            echo "::error::COOLIFY_TOKEN 시크릿이 없어요."
+            exit 1
+          fi
+          curl -fsS -X POST "https://coolify.pixelzx.com/api/v1/deploy" \
+            -H "Authorization: Bearer $COOLIFY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"uuid":"8v8duqlkzyzvijosjg9uaom4","force":false}'
+          echo
