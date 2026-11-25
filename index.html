@@ -131,6 +131,35 @@
     .frame text { font-size: 12px; }
     footer { bottom: 38px; }
   }
+
+  /* 마우스 반응 */
+  .glow {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(225, 75, 98, .08), transparent 70%);
+    transition: opacity .6s;
+  }
+  main { z-index: 1; }
+  .stage { perspective: 800px; }
+  .ld {
+    transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    text-shadow: var(--sx, 0px) var(--sy, 0px) 0 var(--rose-soft);
+    will-change: transform;
+    cursor: default;
+  }
+  .ld .heart { transition: color .3s; }
+  .ld:hover .heart { color: #ff2d55; }
+  .spark {
+    position: fixed; left: 0; top: 0; z-index: 2;
+    pointer-events: none; user-select: none;
+    color: var(--rose);
+    font-size: var(--s, 14px);
+    line-height: 1;
+    animation: float var(--d, .9s) ease-out forwards;
+  }
+  @keyframes float {
+    from { opacity: .9; transform: translate(-50%, -50%) translate(0, 0) scale(1) rotate(0deg); }
+    to   { opacity: 0;  transform: translate(-50%, -50%) translate(var(--tx, 0px), var(--ty, -40px)) scale(.4) rotate(var(--rot, 0deg)); }
+  }
 </style>
 </head>
 <body>
@@ -139,8 +168,9 @@
     <text><textPath id="ring" href="#loop"></textPath></text>
   </svg>
 
+  <div class="glow" aria-hidden="true"></div>
   <main>
-    <h1 class="ld">LD<span class="heart" aria-hidden="true">♥</span></h1>
+    <div class="stage"><h1 class="ld">LD<span class="heart" aria-hidden="true">♥</span></h1></div>
     <p class="name"><b>L</b>ove <b>D</b>esign</p>
     <p class="tag">Your Love Our Design</p>
     <div class="rule"></div>
@@ -158,6 +188,8 @@
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var per = 0, unitLen = 0, offset = 0, last = 0;
   var SPEED = 40; // px per second
+  var boost = 0;  // 마우스를 빠르게 움직이면 테두리가 잠깐 빨라진다
+  window.__ldBoost = function (v) { boost = Math.min(600, boost + v); };
 
   function build() {
     var w = window.innerWidth, h = window.innerHeight;
@@ -202,7 +234,8 @@
 
   function tick(t) {
     if (last) {
-      offset = (offset + SPEED * (t - last) / 1000) % unitLen;
+      offset = (offset + (SPEED + boost) * (t - last) / 1000) % unitLen;
+      boost *= 0.94;
       paint();
     }
     last = t;
@@ -220,6 +253,86 @@
     if (!reduce) requestAnimationFrame(tick);
   }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
+})();
+</script>
+
+<script>
+// 마우스 반응: 배경 하이라이트, 로고 기울기, 하트 꼬리, 클릭 하트 터짐
+(function () {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var root = document.documentElement;
+  var ld = document.querySelector('.ld');
+  var finePointer = window.matchMedia('(pointer: fine)').matches;
+  var tx = 0, ty = 0, cx = 0, cy = 0;   // 목표값 / 현재값 (-1 ~ 1)
+  var lastX = null, lastY = null, lastSpark = 0;
+
+  function spark(x, y, opts) {
+    var el = document.createElement('span');
+    el.className = 'spark';
+    el.textContent = '♥';
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.setProperty('--s', opts.size + 'px');
+    el.style.setProperty('--tx', opts.tx + 'px');
+    el.style.setProperty('--ty', opts.ty + 'px');
+    el.style.setProperty('--rot', opts.rot + 'deg');
+    el.style.setProperty('--d', opts.dur + 's');
+    document.body.appendChild(el);
+    el.addEventListener('animationend', function () { el.remove(); });
+  }
+
+  window.addEventListener('pointermove', function (e) {
+    var w = window.innerWidth, h = window.innerHeight;
+    root.style.setProperty('--mx', e.clientX + 'px');
+    root.style.setProperty('--my', e.clientY + 'px');
+    tx = (e.clientX / w) * 2 - 1;
+    ty = (e.clientY / h) * 2 - 1;
+
+    if (lastX !== null) {
+      var dist = Math.hypot(e.clientX - lastX, e.clientY - lastY);
+      if (window.__ldBoost) window.__ldBoost(dist * 1.2);
+      var now = performance.now();
+      if (finePointer && e.pointerType === 'mouse' && dist > 2 && now - lastSpark > 45) {
+        lastSpark = now;
+        spark(e.clientX, e.clientY, {
+          size: 8 + Math.random() * 8,
+          tx: (Math.random() - .5) * 30,
+          ty: -20 - Math.random() * 30,
+          rot: (Math.random() - .5) * 60,
+          dur: .7 + Math.random() * .4
+        });
+      }
+    }
+    lastX = e.clientX; lastY = e.clientY;
+  }, { passive: true });
+
+  document.addEventListener('pointerleave', function () { tx = 0; ty = 0; lastX = null; });
+
+  window.addEventListener('pointerdown', function (e) {
+    var n = 14;
+    for (var i = 0; i < n; i++) {
+      var a = (Math.PI * 2 * i) / n + Math.random() * .4;
+      var r = 50 + Math.random() * 60;
+      spark(e.clientX, e.clientY, {
+        size: 10 + Math.random() * 14,
+        tx: Math.cos(a) * r,
+        ty: Math.sin(a) * r,
+        rot: (Math.random() - .5) * 120,
+        dur: .8 + Math.random() * .5
+      });
+    }
+    if (window.__ldBoost) window.__ldBoost(400);
+  });
+
+  (function loop() {
+    cx += (tx - cx) * .08;
+    cy += (ty - cy) * .08;
+    ld.style.setProperty('--ry', (cx * 14).toFixed(2) + 'deg');
+    ld.style.setProperty('--rx', (-cy * 14).toFixed(2) + 'deg');
+    ld.style.setProperty('--sx', (-cx * 10).toFixed(1) + 'px');
+    ld.style.setProperty('--sy', (-cy * 10).toFixed(1) + 'px');
+    requestAnimationFrame(loop);
+  })();
 })();
 </script>
 </body>
