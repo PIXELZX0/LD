@@ -1,61 +1,230 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Love Design — Your Love Our Design</title>
-<meta name="description" content="Love Design — Your Love Our Design.">
-<meta name="theme-color" content="#0d0d0f">
+<title>LD — Love Design · Your Love Our Design</title>
+<meta name="description" content="Love Design — 사랑을 당신에 맞게 조각해드립니다. 연애 고민상담, 곧 문을 엽니다.">
+<meta name="theme-color" content="#ffffff">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♥</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: light;
+    --bg: #ffffff;
+    --ink: #161616;
+    --muted: #7a7470;
+    --soft: #b9b2ad;
+    --rose: #e14b62;
+    --rose-soft: #f6d6db;
+  }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
     display: grid; place-items: center;
-    background: radial-gradient(120% 120% at 50% 0%, #1b1b22 0%, #0d0d0f 55%, #08080a 100%);
-    color: #f4f1ec;
-    font-family: "Helvetica Neue", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100svh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    padding: 24px;
+    padding: 64px 28px;
+    overflow: hidden;
   }
-  main { text-align: center; max-width: 900px; }
-  .mark {
+
+  /* 테두리를 도는 LD ♥ 루프 */
+  .frame {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .frame text {
+    font-family: "Playfair Display", Georgia, serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: .08em;
+    fill: var(--ink);
+  }
+  .frame .h { fill: var(--rose); }
+  .frame .track { fill: none; stroke: none; }
+
+  main { text-align: center; max-width: 720px; position: relative; }
+
+  .ld {
     margin: 0;
-    font-size: clamp(2.4rem, 10vw, 6.2rem);
-    font-weight: 300;
-    line-height: 1.05;
-    letter-spacing: .06em;
-    white-space: nowrap;
+    font-family: "Playfair Display", Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(6rem, 30vw, 13rem);
+    line-height: .9;
+    letter-spacing: -.02em;
+    position: relative;
+    display: inline-block;
   }
-  .mark em { font-style: normal; color: #e0787f; }
-  .rule {
-    width: 56px; height: 1px; margin: 26px auto 22px;
-    background: linear-gradient(90deg, transparent, #6f6a66, transparent);
+  .ld .heart {
+    position: absolute;
+    top: .02em; right: -.28em;
+    font-size: .26em;
+    color: var(--rose);
   }
+
+  .name {
+    margin: 18px 0 0;
+    font-family: "Playfair Display", Georgia, serif;
+    font-weight: 700;
+    font-size: clamp(1.25rem, 4.6vw, 1.9rem);
+    letter-spacing: .12em;
+  }
+  .name b { color: var(--rose); font-weight: 900; }
+
   .tag {
+    margin: 8px 0 0;
+    font-size: clamp(.68rem, 2.2vw, .82rem);
+    letter-spacing: .32em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .rule {
+    width: 48px; height: 1px; margin: 30px auto;
+    background: linear-gradient(90deg, transparent, var(--rose), transparent);
+  }
+
+  .copy {
     margin: 0;
-    font-size: clamp(.66rem, 2.1vw, .82rem);
-    letter-spacing: .26em;
-    color: #9d968e;
+    font-size: clamp(1.05rem, 4vw, 1.45rem);
+    font-weight: 400;
+    letter-spacing: -.01em;
+    line-height: 1.6;
+    word-break: keep-all;
   }
+  .copy em { font-style: normal; color: var(--rose); font-weight: 500; }
+
+  .soon {
+    display: inline-flex; align-items: center; gap: 10px;
+    margin-top: 28px;
+    padding: 9px 18px;
+    border: 1px solid var(--rose-soft);
+    border-radius: 999px;
+    font-size: .82rem;
+    color: var(--muted);
+    word-break: keep-all;
+  }
+  .soon i {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--rose);
+    flex: none;
+  }
+
   footer {
-    position: fixed; left: 0; right: 0; bottom: 20px;
-    text-align: center; font-size: .72rem; letter-spacing: .12em;
-    color: #524d47;
+    position: fixed; left: 0; right: 0; bottom: 46px;
+    text-align: center; font-size: .72rem; letter-spacing: .14em;
+    color: var(--soft);
   }
+
   @media (prefers-reduced-motion: no-preference) {
-    main { animation: rise .9s cubic-bezier(.2,.7,.2,1) both; }
-    @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    main { animation: rise 1s cubic-bezier(.2,.7,.2,1) both; }
+    .ld .heart { animation: beat 1.6s ease-in-out infinite; transform-origin: center; display: inline-block; }
+    .soon i { animation: pulse 1.8s ease-in-out infinite; }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+    @keyframes beat { 0%, 60%, 100% { transform: scale(1); } 15% { transform: scale(1.22); } 30% { transform: scale(.96); } 45% { transform: scale(1.12); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+  }
+
+  @media (max-width: 480px) {
+    .frame text { font-size: 12px; }
+    footer { bottom: 38px; }
   }
 </style>
 </head>
 <body>
+  <svg class="frame" aria-hidden="true">
+    <path id="loop" class="track" />
+    <text><textPath id="ring" href="#loop"></textPath></text>
+  </svg>
+
   <main>
-    <h1 class="mark">Love <em>D</em>esign</h1>
-    <div class="rule"></div>
+    <h1 class="ld">LD<span class="heart" aria-hidden="true">♥</span></h1>
+    <p class="name"><b>L</b>ove <b>D</b>esign</p>
     <p class="tag">Your Love Our Design</p>
+    <div class="rule"></div>
+    <p class="copy">사랑을 <em>당신에 맞게</em> 조각해드립니다</p>
+    <div class="soon"><i></i>연애 고민상담 서비스, 지금 준비하고 있어요</div>
   </main>
   <footer>yourloveour.design</footer>
+
+<script>
+(function () {
+  var svg = document.querySelector('.frame');
+  var path = document.getElementById('loop');
+  var ring = document.getElementById('ring');
+  var UNIT = 'LD ♥ ';
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var per = 0, unitLen = 0, offset = 0, last = 0;
+  var SPEED = 40; // px per second
+
+  function build() {
+    var w = window.innerWidth, h = window.innerHeight;
+    var m = w < 480 ? 16 : 22;     // 화면 가장자리와의 간격
+    var r = w < 480 ? 18 : 28;     // 모서리 둥글기
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    var x0 = m, y0 = m, x1 = w - m, y1 = h - m;
+    path.setAttribute('d',
+      'M' + (x0 + r) + ' ' + y0 +
+      ' H' + (x1 - r) + ' A' + r + ' ' + r + ' 0 0 1 ' + x1 + ' ' + (y0 + r) +
+      ' V' + (y1 - r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x1 - r) + ' ' + y1 +
+      ' H' + (x0 + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + x0 + ' ' + (y1 - r) +
+      ' V' + (y0 + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x0 + r) + ' ' + y0 + ' Z');
+    per = path.getTotalLength();
+
+    // 한 단위(LD ♥) 길이를 재고, 둘레에 정수 개가 딱 맞도록 간격을 조정한다
+    ring.textContent = '';
+    appendUnit();
+    var natural = ring.getComputedTextLength() || 60;
+    var n = Math.max(4, Math.round(per / natural));
+    unitLen = per / n;
+    ring.textContent = '';
+    for (var i = 0; i < n + 1; i++) appendUnit();
+    ring.setAttribute('textLength', unitLen * (n + 1));
+    ring.setAttribute('lengthAdjust', 'spacing');
+    // 글자를 선 바로 바깥쪽이 아닌 가운데에 오게
+    ring.setAttribute('dy', '0.35em');
+    offset = offset % unitLen;
+    paint();
+  }
+
+  function appendUnit() {
+    var ns = 'http://www.w3.org/2000/svg';
+    var a = document.createElementNS(ns, 'tspan'); a.textContent = 'LD ';
+    var b = document.createElementNS(ns, 'tspan'); b.textContent = '♥ '; b.setAttribute('class', 'h');
+    ring.appendChild(a); ring.appendChild(b);
+  }
+
+  function paint() {
+    ring.setAttribute('startOffset', (offset - unitLen).toFixed(2));
+  }
+
+  function tick(t) {
+    if (last) {
+      offset = (offset + SPEED * (t - last) / 1000) % unitLen;
+      paint();
+    }
+    last = t;
+    requestAnimationFrame(tick);
+  }
+
+  var resizeTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(build, 80);
+  });
+
+  function start() {
+    build();
+    if (!reduce) requestAnimationFrame(tick);
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
+})();
+</script>
 </body>
 </html>
