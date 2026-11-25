@@ -36,7 +36,7 @@ jobs:
             sleep 1
           done
           test "$code" = "200" || { echo "::error::이미지가 200 을 반환하지 않아요 ($code)"; docker logs ld-ci; exit 1; }
-          curl -s http://127.0.0.1:8080/ | grep -q "LOVEOUR"
+          curl -s http://127.0.0.1:8080/ | grep -qi "love design"
 
   deploy:
     name: Coolify 배포
