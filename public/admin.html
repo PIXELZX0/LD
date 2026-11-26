@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관리자 · Love Design</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♡</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js"></script>
+</head>
+<body>
+<main class="wrap">
+  <h1>관리자</h1>
+  <div class="tabs" role="tablist">
+    <button class="btn sm" data-t="apps">상담자 지원</button>
+    <button class="btn sm" data-t="users">회원</button>
+    <button class="btn sm" data-t="cons">전체 상담</button>
+  </div>
+  <div id="out"></div>
+</main>
+<script>
+const APP = { pending: '심사중', approved: '승인됨', rejected: '거절됨' };
+let me;
+const act = (fn) => async () => { try { await fn(); } catch (x) { alert(x.message); } show(cur); };
+const table = (head, rows) => el('table', {}, el('tr', {}, head.map((h) => el('th', {}, h))), rows);
+const views = {
+  async apps() {
+    const rows = await api('/api/admin/applications');
+    return table(['지원자', '소개', '상태', ''], rows.map((a) => el('tr', {},
+      el('td', {}, a.nickname, el('div', { class: 'muted' }, a.email)),
+      el('td', { style: 'white-space:pre-wrap' }, a.intro),
+      el('td', {}, APP[a.status], el('div', { class: 'muted' }, fmt(a.created_at))),
+      el('td', {}, a.status === 'pending' ? [
+        el('button', { class: 'btn sm primary', onclick: act(() => api(`/api/admin/applications/${a.id}/approve`, {})) }, '승인'), ' ',
+        el('button', { class: 'btn sm', onclick: act(() => api(`/api/admin/applications/${a.id}/reject`, {})) }, '거절')] : null))));
+  },
+  async users() {
+    const rows = await api('/api/admin/users');
+    return table(['닉네임', '이메일', '역할', '상태'], rows.map((x) => el('tr', {},
+      el('td', {}, x.nickname), el('td', {}, x.is_anonymous ? '(익명)' : x.email),
+      el('td', {}, x.id === me.id ? ROLE[x.role] : el('select', { onchange: (e) => act(() => api('/api/admin/users/' + x.id, { role: e.target.value }))() },
+        Object.entries(ROLE).map(([k, v]) => el('option', { value: k, selected: k === x.role }, v)))),
+      el('td', {}, x.id === me.id ? '' : el('button', { class: 'btn sm', onclick: act(() => api('/api/admin/users/' + x.id, { banned: !x.banned })) }, x.banned ? '정지 해제' : '정지')))));
+  },
+  async cons() {
+    const rows = await api('/api/admin/consultations');
+    return table(['제목', '분야', '내담자', '상담자', '상태', '생성'], rows.map((c) => el('tr', {},
+      el('td', {}, el('a', { href: '/chat?id=' + c.id }, c.title)), el('td', {}, c.category),
+      el('td', {}, c.client_name), el('td', {}, c.counselor_name || '-'), el('td', {}, statusTag(c.status)), el('td', {}, fmt(c.created_at)))));
+  },
+};
+let cur = 'apps';
+async function show(t) {
+  cur = t;
+  document.querySelectorAll('[data-t]').forEach((b) => b.setAttribute('aria-selected', b.dataset.t === t));
+  out.replaceChildren(await views[t]());
+}
+document.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => show(b.dataset.t)));
+boot(['admin']).then(({ user }) => { me = user; show('apps'); });
+</script>
+</body>
+</html>

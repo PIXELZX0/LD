@@ -1,4 +1,10 @@
-FROM nginx:1.27-alpine
-COPY index.html /usr/share/nginx/html/index.html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY server.js db.js schema.sql ./
+COPY public ./public
+EXPOSE 3000
+USER node
+CMD ["node", "server.js"]

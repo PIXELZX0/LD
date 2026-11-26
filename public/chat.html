@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>상담 · Love Design</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♡</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js"></script>
+</head>
+<body>
+<main class="chat">
+  <div class="head row"><div><b id="title"></b> <span id="st"></span><div class="muted" id="info"></div></div>
+    <button class="btn sm" id="endBtn" hidden>상담 종료</button></div>
+  <div class="msgs" id="msgs"></div>
+  <form class="send" id="f"><textarea id="t" maxlength="2000" placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)" required></textarea><button class="btn primary">전송</button></form>
+</main>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const id = Number(new URLSearchParams(location.search).get('id'));
+let me, c;
+function add(m) {
+  msgs.append(el('div', { class: 'msg' + (m.sender_id === me.id ? ' me' : '') },
+    el('div', { class: 'who' }, m.nickname + (m.role === 'counselor' || m.role === 'admin' ? ' · ' + ROLE[m.role] : '') + ' · ' + fmt(m.created_at).slice(11)),
+    el('div', { class: 'b' }, m.body)));
+  msgs.scrollTop = msgs.scrollHeight;
+}
+function render() {
+  title.textContent = c.title;
+  st.replaceChildren(statusTag(c.status));
+  info.textContent = `${c.category} · 내담자 ${c.client_name} · 상담자 ${c.counselor_name || '배정 대기중'}`;
+  const part = me.id === c.client_id || me.id === c.counselor_id;
+  endBtn.hidden = c.status === 'closed' || !(part || me.role === 'admin') || (c.status === 'waiting' && me.id !== c.client_id && me.role !== 'admin');
+  const canSend = c.status === 'active' && part;
+  f.hidden = !canSend && c.status !== 'waiting';
+  t.disabled = f.querySelector('button').disabled = !canSend;
+  t.placeholder = c.status === 'waiting' ? '상담자가 수락하면 대화를 시작할 수 있어요.' : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)';
+}
+boot(true).then(async ({ user }) => {
+  me = user;
+  let data;
+  try { data = await api('/api/consultations/' + id); }
+  catch (x) { document.querySelector('main').replaceChildren(el('p', { class: 'wrap' }, x.message)); return; }
+  c = data.consultation; render(); data.messages.forEach(add);
+  if (c.status === 'closed') msgs.append(el('div', { class: 'notice' }, '종료된 상담이에요.'));
+  const s = io();
+  s.on('connect', () => s.emit('join', id));
+  s.on('msg', add);
+  s.on('status', ({ status, counselor }) => {
+    c.status = status; if (counselor) c.counselor_name = counselor;
+    render();
+    msgs.append(el('div', { class: 'notice' }, status === 'active' ? `${counselor} 상담자가 연결됐어요.` : '상담이 종료됐어요.'));
+    msgs.scrollTop = msgs.scrollHeight;
+  });
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const body = t.value.trim(); if (!body) return;
+    s.emit('send', { id, body }, (r) => { if (r && r.error) alert(r.error); });
+    t.value = '';
+  };
+  t.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); f.requestSubmit(); } };
+  endBtn.onclick = async () => { if (confirm('상담을 종료할까요?')) await api(`/api/consultations/${id}/close`, {}).catch((x) => alert(x.message)); };
+});
+</script>
+</body>
+</html>

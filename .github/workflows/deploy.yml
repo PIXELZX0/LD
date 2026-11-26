@@ -20,17 +20,31 @@ jobs:
   test:
     name: 검사
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: ci
+          MYSQL_DATABASE: love_design
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -pci" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: mysql://root:ci@127.0.0.1:3306/love_design
     steps:
       - uses: actions/checkout@v4
-      - name: 페이지·이미지 구성 확인
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 스모크 테스트
+        run: npm test
+      - name: 이미지 구성 확인
         run: |
-          test -s index.html
-          test -s Dockerfile
-          test -s nginx.conf
-          grep -qi "<html" index.html
           docker build -t ld-test:ci . >/dev/null
-          docker run -d --rm --name ld-ci -p 8080:80 ld-test:ci
-          for i in $(seq 1 15); do
+          docker run -d --rm --name ld-ci --network host -e DATABASE_URL -e PORT=8080 ld-test:ci
+          for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz || true)
             [ "$code" = "200" ] && break
             sleep 1

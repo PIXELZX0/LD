@@ -1,0 +1,285 @@
+const path = require('node:path');
+const http = require('node:http');
+const express = require('express');
+const session = require('express-session');
+const MySQLStore = require('express-mysql-session')(session);
+const bcrypt = require('bcryptjs');
+const { Server } = require('socket.io');
+const { pool, init, url } = require('./db');
+
+const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직장', '건강', '기타'];
+const MAX_MSG = 2000;
+
+const app = express();
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '20kb' }));
+
+const u = new URL(url);
+const store = new MySQLStore({
+  host: u.hostname, port: Number(u.port || 3306),
+  user: decodeURIComponent(u.username), password: decodeURIComponent(u.password),
+  database: u.pathname.slice(1),
+});
+const sessionMw = session({
+  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
+  store, resave: false, saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 1000 * 60 * 60 * 24 * 30 },
+});
+app.use(sessionMw);
+
+const q = async (sql, params) => (await pool.query(sql, params))[0];
+const pub = (x) => x && { id: x.id, nickname: x.nickname, role: x.role, is_anonymous: !!x.is_anonymous, email: x.email };
+
+async function getUser(id) {
+  if (!id) return null;
+  const [user] = await q('SELECT * FROM users WHERE id = ?', [id]);
+  return user && !user.banned ? user : null;
+}
+
+// 매 요청마다 DB에서 다시 읽는다 → 역할 변경·정지가 즉시 반영된다
+app.use(async (req, res, next) => {
+  try { req.user = await getUser(req.session.userId); next(); } catch (e) { next(e); }
+});
+
+const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+const auth = (...roles) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: '로그인이 필요해요.' });
+  if (roles.length && !roles.includes(req.user.role)) return res.status(403).json({ error: '권한이 없어요.' });
+  next();
+};
+const isStaff = (user) => user.role === 'counselor' || user.role === 'admin';
+
+async function access(user, id) {
+  const [c] = await q('SELECT * FROM consultations WHERE id = ?', [id]);
+  if (!c) return null;
+  const ok = user.role === 'admin' || c.client_id === user.id || c.counselor_id === user.id
+    || (c.status === 'waiting' && user.role === 'counselor');
+  return ok ? c : null;
+}
+
+function login(req, user) {
+  return new Promise((resolve, reject) =>
+    req.session.regenerate((err) => {
+      if (err) return reject(err);
+      req.session.userId = user.id;
+      req.session.save((e) => (e ? reject(e) : resolve()));
+    }));
+}
+
+// ponytail: 메모리 카운터 — 인스턴스 1개 한정. 여러 대로 늘리면 Redis 등으로.
+const fails = new Map();
+function tooMany(key) {
+  const f = fails.get(key);
+  if (f && Date.now() - f.t > 15 * 60 * 1000) { fails.delete(key); return false; }
+  return f && f.n >= 10;
+}
+function fail(key) {
+  const f = fails.get(key) || { n: 0, t: Date.now() };
+  f.n++; fails.set(key, f);
+}
+
+app.get('/healthz', (req, res) => res.type('text').send('ok\n'));
+
+app.get('/api/me', (req, res) => res.json({ user: pub(req.user), categories: CATEGORIES }));
+
+app.post('/api/anon', wrap(async (req, res) => {
+  if (req.user) return res.json({ user: pub(req.user) });
+  const nick = '익명#' + String(Math.floor(1000 + Math.random() * 9000));
+  const r = await q('INSERT INTO users (nickname, is_anonymous) VALUES (?, 1)', [nick]);
+  const user = await getUser(r.insertId);
+  await login(req, user);
+  res.json({ user: pub(user) });
+}));
+
+app.post('/api/signup', wrap(async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+  const nickname = String(req.body.nickname || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
+  if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '비밀번호는 8~72자로 해주세요.' });
+  if (nickname.length < 1 || nickname.length > 20) return res.status(400).json({ error: '닉네임은 1~20자로 해주세요.' });
+  try {
+    const r = await q('INSERT INTO users (email, password_hash, nickname) VALUES (?, ?, ?)',
+      [email, await bcrypt.hash(password, 10), nickname]);
+    const user = await getUser(r.insertId);
+    await login(req, user);
+    res.json({ user: pub(user) });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: '이미 가입된 이메일이에요.' });
+    throw e;
+  }
+}));
+
+app.post('/api/login', wrap(async (req, res) => {
+  const key = req.ip;
+  if (tooMany(key)) return res.status(429).json({ error: '시도가 너무 많아요. 잠시 후 다시 해주세요.' });
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const [user] = await q('SELECT * FROM users WHERE email = ?', [email]);
+  if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash || ''))) {
+    fail(key);
+    return res.status(401).json({ error: '이메일 또는 비밀번호가 맞지 않아요.' });
+  }
+  if (user.banned) return res.status(403).json({ error: '이용이 정지된 계정이에요.' });
+  fails.delete(key);
+  await login(req, user);
+  res.json({ user: pub(user) });
+}));
+
+app.post('/api/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
+
+// ── 상담 ──
+app.post('/api/consultations', auth(), wrap(async (req, res) => {
+  const category = CATEGORIES.includes(req.body.category) ? req.body.category : '기타';
+  const title = String(req.body.title || '').trim();
+  const body = String(req.body.body || '').trim();
+  if (!title || title.length > 120) return res.status(400).json({ error: '제목은 1~120자로 해주세요.' });
+  if (!body || body.length > MAX_MSG) return res.status(400).json({ error: `고민 내용은 1~${MAX_MSG}자로 해주세요.` });
+  const r = await q('INSERT INTO consultations (client_id, category, title) VALUES (?, ?, ?)', [req.user.id, category, title]);
+  await q('INSERT INTO messages (consultation_id, sender_id, body) VALUES (?, ?, ?)', [r.insertId, req.user.id, body]);
+  io.to('counselors').emit('queue');
+  res.json({ id: r.insertId });
+}));
+
+const LIST = `SELECT c.*, cl.nickname AS client_name, co.nickname AS counselor_name
+  FROM consultations c JOIN users cl ON cl.id = c.client_id LEFT JOIN users co ON co.id = c.counselor_id`;
+
+app.get('/api/consultations/mine', auth(), wrap(async (req, res) => {
+  res.json(await q(`${LIST} WHERE c.client_id = ? OR c.counselor_id = ? ORDER BY c.id DESC`, [req.user.id, req.user.id]));
+}));
+
+app.get('/api/consultations/waiting', auth('counselor', 'admin'), wrap(async (req, res) => {
+  res.json(await q(`${LIST} WHERE c.status = 'waiting' ORDER BY c.id`));
+}));
+
+app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
+  const c = await access(req.user, req.params.id);
+  if (!c) return res.status(403).json({ error: '볼 수 없는 상담이에요.' });
+  const [info] = await q(`${LIST} WHERE c.id = ?`, [c.id]);
+  const messages = await q(
+    `SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role
+     FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id]);
+  res.json({ consultation: info, messages, me: req.user.id });
+}));
+
+app.post('/api/consultations/:id/accept', auth('counselor', 'admin'), wrap(async (req, res) => {
+  const r = await q("UPDATE consultations SET status = 'active', counselor_id = ? WHERE id = ? AND status = 'waiting' AND client_id <> ?",
+    [req.user.id, req.params.id, req.user.id]);
+  if (!r.affectedRows) return res.status(409).json({ error: '이미 다른 상담자가 맡았거나 수락할 수 없는 상담이에요.' });
+  io.to('counselors').emit('queue');
+  io.to('c:' + req.params.id).emit('status', { status: 'active', counselor: req.user.nickname });
+  res.json({ ok: true });
+}));
+
+app.post('/api/consultations/:id/close', auth(), wrap(async (req, res) => {
+  const c = await access(req.user, req.params.id);
+  if (!c || (c.status === 'waiting' && c.client_id !== req.user.id && req.user.role !== 'admin'))
+    return res.status(403).json({ error: '권한이 없어요.' });
+  await q("UPDATE consultations SET status = 'closed', closed_at = NOW() WHERE id = ? AND status <> 'closed'", [c.id]);
+  io.to('counselors').emit('queue');
+  io.to('c:' + c.id).emit('status', { status: 'closed' });
+  res.json({ ok: true });
+}));
+
+// ── 상담자 지원 ──
+app.post('/api/apply', auth('user'), wrap(async (req, res) => {
+  if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 지원할 수 있어요.' });
+  const intro = String(req.body.intro || '').trim();
+  if (intro.length < 10 || intro.length > 2000) return res.status(400).json({ error: '소개글은 10~2000자로 해주세요.' });
+  const [p] = await q("SELECT id FROM counselor_applications WHERE user_id = ? AND status = 'pending'", [req.user.id]);
+  if (p) return res.status(409).json({ error: '이미 심사 중인 지원서가 있어요.' });
+  await q('INSERT INTO counselor_applications (user_id, intro) VALUES (?, ?)', [req.user.id, intro]);
+  res.json({ ok: true });
+}));
+
+app.get('/api/apply', auth(), wrap(async (req, res) => {
+  res.json(await q('SELECT id, status, created_at, decided_at FROM counselor_applications WHERE user_id = ? ORDER BY id DESC', [req.user.id]));
+}));
+
+// ── 관리자 ──
+const admin = auth('admin');
+app.get('/api/admin/applications', admin, wrap(async (req, res) => {
+  res.json(await q(`SELECT a.*, u.nickname, u.email FROM counselor_applications a JOIN users u ON u.id = a.user_id
+    ORDER BY a.status = 'pending' DESC, a.id DESC LIMIT 200`));
+}));
+
+app.post('/api/admin/applications/:id/:decision', admin, wrap(async (req, res) => {
+  if (!['approve', 'reject'].includes(req.params.decision)) return res.status(404).json({ error: '없는 주소예요.' });
+  const status = req.params.decision === 'approve' ? 'approved' : 'rejected';
+  const [a] = await q("SELECT * FROM counselor_applications WHERE id = ? AND status = 'pending'", [req.params.id]);
+  if (!a) return res.status(404).json({ error: '심사할 지원서가 없어요.' });
+  await q('UPDATE counselor_applications SET status = ?, decided_at = NOW() WHERE id = ?', [status, a.id]);
+  if (status === 'approved') await q("UPDATE users SET role = 'counselor' WHERE id = ? AND role = 'user'", [a.user_id]);
+  res.json({ ok: true });
+}));
+
+app.get('/api/admin/users', admin, wrap(async (req, res) => {
+  res.json(await q('SELECT id, email, nickname, role, is_anonymous, banned, created_at FROM users ORDER BY id DESC LIMIT 500'));
+}));
+
+app.post('/api/admin/users/:id', admin, wrap(async (req, res) => {
+  if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: '자기 자신은 바꿀 수 없어요.' });
+  const { role, banned } = req.body;
+  if (role !== undefined) {
+    if (!['user', 'counselor', 'admin'].includes(role)) return res.status(400).json({ error: '잘못된 역할' });
+    await q('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
+  }
+  if (banned !== undefined) await q('UPDATE users SET banned = ? WHERE id = ?', [banned ? 1 : 0, req.params.id]);
+  res.json({ ok: true });
+}));
+
+app.get('/api/admin/consultations', admin, wrap(async (req, res) => {
+  res.json(await q(`${LIST} ORDER BY c.id DESC LIMIT 500`));
+}));
+
+app.use('/api', (req, res) => res.status(404).json({ error: '없는 주소예요.' }));
+app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: '서버 오류가 났어요.' });
+});
+
+// ── 실시간 채팅 ──
+const server = http.createServer(app);
+const io = new Server(server);
+io.engine.use(sessionMw);
+
+io.on('connection', async (socket) => {
+  const uid = socket.request.session?.userId;
+  const me = await getUser(uid).catch(() => null);
+  if (!me) return socket.disconnect(true);
+  if (isStaff(me)) socket.join('counselors');
+
+  socket.on('join', async (id, ack) => {
+    const c = await access(me, id).catch(() => null);
+    if (c) socket.join('c:' + c.id);
+    ack?.({ ok: !!c });
+  });
+
+  socket.on('send', async ({ id, body } = {}, ack) => {
+    try {
+      const user = await getUser(me.id); // 정지 여부 재확인
+      const text = String(body || '').trim();
+      const c = user && await access(user, id);
+      if (!c || c.status !== 'active' || (c.client_id !== user.id && c.counselor_id !== user.id))
+        return ack?.({ error: '메시지를 보낼 수 없어요.' });
+      if (!text || text.length > MAX_MSG) return ack?.({ error: `메시지는 1~${MAX_MSG}자로 해주세요.` });
+      const r = await q('INSERT INTO messages (consultation_id, sender_id, body) VALUES (?, ?, ?)', [c.id, user.id, text]);
+      const [m] = await q(`SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role
+        FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`, [r.insertId]);
+      io.to('c:' + c.id).emit('msg', m);
+      ack?.({ ok: true });
+    } catch (e) {
+      console.error(e);
+      ack?.({ error: '서버 오류가 났어요.' });
+    }
+  });
+});
+
+if (require.main === module) {
+  init().then(() => {
+    const port = Number(process.env.PORT || 3000);
+    server.listen(port, () => console.log(`Love Design on :${port}`));
+  }).catch((e) => { console.error(e); process.exit(1); });
+}
+
+module.exports = { server, init, pool, store };
