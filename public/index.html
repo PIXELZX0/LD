@@ -134,10 +134,14 @@
   }
 
   /* 마우스 반응 */
+  /* 화면 전체를 다시 그리지 않도록 원 하나를 transform 으로만 옮긴다 */
   .glow {
-    position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(225, 75, 98, .08), transparent 70%);
-    transition: opacity .6s;
+    position: fixed; left: 0; top: 0; z-index: 0;
+    width: 840px; height: 840px; margin: -420px 0 0 -420px;
+    pointer-events: none; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(225, 75, 98, .08), transparent 70%);
+    transform: translate3d(50vw, 50vh, 0);
+    will-change: transform;
   }
   main { z-index: 1; }
   .stage { perspective: 800px; }
@@ -269,7 +273,6 @@ document.getElementById('anon').addEventListener('click', async function () {
 // 마우스 반응: 배경 하이라이트, 로고 기울기, 하트 꼬리, 클릭 하트 터짐
 (function () {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var root = document.documentElement;
   var ld = document.querySelector('.ld');
   var finePointer = window.matchMedia('(pointer: fine)').matches;
   var tx = 0, ty = 0, cx = 0, cy = 0;   // 목표값 / 현재값 (-1 ~ 1)
@@ -290,20 +293,25 @@ document.getElementById('anon').addEventListener('click', async function () {
     el.addEventListener('animationend', function () { el.remove(); });
   }
 
+  var glow = document.querySelector('.glow');
+  var mx = 0, my = 0, raf = 0, prev = 0;
+
+  // 이벤트에서는 값만 저장하고, 화면 갱신은 프레임당 한 번만 한다
+  function kick() { if (!raf) { prev = 0; raf = requestAnimationFrame(loop); } }
+
   window.addEventListener('pointermove', function (e) {
     var w = window.innerWidth, h = window.innerHeight;
-    root.style.setProperty('--mx', e.clientX + 'px');
-    root.style.setProperty('--my', e.clientY + 'px');
-    tx = (e.clientX / w) * 2 - 1;
-    ty = (e.clientY / h) * 2 - 1;
+    mx = e.clientX; my = e.clientY;
+    tx = (mx / w) * 2 - 1;
+    ty = (my / h) * 2 - 1;
 
     if (lastX !== null) {
-      var dist = Math.hypot(e.clientX - lastX, e.clientY - lastY);
+      var dist = Math.hypot(mx - lastX, my - lastY);
       if (window.__ldBoost) window.__ldBoost(dist * 1.2);
       var now = performance.now();
-      if (finePointer && e.pointerType === 'mouse' && dist > 2 && now - lastSpark > 45) {
+      if (finePointer && e.pointerType === 'mouse' && dist > 2 && now - lastSpark > 30) {
         lastSpark = now;
-        spark(e.clientX, e.clientY, {
+        spark(mx, my, {
           size: 8 + Math.random() * 8,
           tx: (Math.random() - .5) * 30,
           ty: -20 - Math.random() * 30,
@@ -312,10 +320,11 @@ document.getElementById('anon').addEventListener('click', async function () {
         });
       }
     }
-    lastX = e.clientX; lastY = e.clientY;
+    lastX = mx; lastY = my;
+    kick();
   }, { passive: true });
 
-  document.addEventListener('pointerleave', function () { tx = 0; ty = 0; lastX = null; });
+  document.addEventListener('pointerleave', function () { tx = 0; ty = 0; lastX = null; kick(); });
 
   window.addEventListener('pointerdown', function (e) {
     var n = 14;
@@ -333,15 +342,21 @@ document.getElementById('anon').addEventListener('click', async function () {
     if (window.__ldBoost) window.__ldBoost(400);
   });
 
-  (function loop() {
-    cx += (tx - cx) * .08;
-    cy += (ty - cy) * .08;
+  function loop(t) {
+    // 주사율과 무관하게 같은 속도로 따라오도록 프레임 간격으로 보정
+    var k = prev ? 1 - Math.pow(1 - .22, (t - prev) / 16.67) : .22;
+    prev = t;
+    cx += (tx - cx) * k;
+    cy += (ty - cy) * k;
+    glow.style.transform = 'translate3d(' + mx + 'px,' + my + 'px,0)';
     ld.style.setProperty('--ry', (cx * 14).toFixed(2) + 'deg');
     ld.style.setProperty('--rx', (-cy * 14).toFixed(2) + 'deg');
     ld.style.setProperty('--sx', (-cx * 10).toFixed(1) + 'px');
     ld.style.setProperty('--sy', (-cy * 10).toFixed(1) + 'px');
-    requestAnimationFrame(loop);
-  })();
+    // 목표에 도달하면 멈춰서 가만히 있을 때 매 프레임 다시 그리지 않는다
+    if (Math.abs(tx - cx) + Math.abs(ty - cy) > .001) raf = requestAnimationFrame(loop);
+    else raf = 0;
+  }
 })();
 </script>
 </body>
