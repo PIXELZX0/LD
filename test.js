@@ -37,7 +37,7 @@ const rnd = () => Math.random().toString(36).slice(2, 8);
 test('전체 흐름', async () => {
   const home = await (await fetch(base + '/')).text();
   assert.match(home, /당신에게 맞는<\/em> 사랑을 조각해드립니다/);
-  for (const t of ['익명으로 이용하기', '회원으로 이용하기', '이용방법안내', '사이트 소개']) assert.ok(home.includes(t), t);
+  for (const t of ['익명으로 이용하기', '회원으로 이용하기', 'href="/guide"', 'href="/about"', 'href="/login"']) assert.ok(home.includes(t), t);
   assert.equal((await fetch(base + '/healthz')).status, 200);
 
   // 익명 유저 → 상담 요청
