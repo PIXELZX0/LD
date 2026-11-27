@@ -1,4 +1,5 @@
 const path = require('node:path');
+const crypto = require('node:crypto');
 const http = require('node:http');
 const express = require('express');
 const session = require('express-session');
@@ -6,6 +7,7 @@ const MySQLStore = require('express-mysql-session')(session);
 const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
 const { pool, init, url } = require('./db');
+const mail = require('./mail');
 
 const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직장', '건강', '기타'];
 const MAX_MSG = 2000;
@@ -91,16 +93,62 @@ app.post('/api/anon', wrap(async (req, res) => {
   res.json({ user: pub(user) });
 }));
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const normEmail = (v) => String(v || '').trim().toLowerCase();
+const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
+
+// 회원가입 이메일 인증번호 발송 (6자리, 10분 유효, 재발송 1분 간격, 입력 5회까지)
+app.post('/api/email/code', wrap(async (req, res) => {
+  const email = normEmail(req.body.email);
+  if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
+  if (!mail.enabled) return res.status(503).json({ error: '지금은 인증 메일을 보낼 수 없어요. 관리자에게 문의해주세요.' });
+  const key = 'mail:' + req.ip;
+  if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
+  const [dup] = await q('SELECT id FROM users WHERE email = ?', [email]);
+  if (dup) return res.status(409).json({ error: '이미 가입된 이메일이에요.' });
+  const [prev] = await q('SELECT sent_at > NOW() - INTERVAL 60 SECOND AS recent FROM email_codes WHERE email = ?', [email]);
+  if (prev?.recent) return res.status(429).json({ error: '인증번호는 1분에 한 번만 보낼 수 있어요.' });
+  fail(key);
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  await q('REPLACE INTO email_codes (email, code_hash, expires_at) VALUES (?, ?, NOW() + INTERVAL 10 MINUTE)', [email, sha(code)]);
+  try {
+    await mail.send({
+      to: email,
+      subject: `[Love Design] 인증번호 ${code}`,
+      text: `Love Design 회원가입 인증번호는 ${code} 입니다.\n10분 안에 입력해주세요.\n\n본인이 요청하지 않았다면 이 메일을 무시하세요.`,
+      html: `<div style="font-family:sans-serif;max-width:420px;margin:auto;padding:24px">
+        <p style="font-size:20px;font-weight:800;margin:0 0 16px">LD♡ Love Design</p>
+        <p>회원가입 인증번호예요. 10분 안에 입력해주세요.</p>
+        <p style="font-size:32px;font-weight:800;letter-spacing:8px;margin:24px 0">${code}</p>
+        <p style="color:#888;font-size:13px">본인이 요청하지 않았다면 이 메일을 무시하세요.</p></div>`,
+    });
+  } catch (e) {
+    console.error('mail send failed', e);
+    await q('DELETE FROM email_codes WHERE email = ?', [email]);
+    return res.status(502).json({ error: '메일을 보내지 못했어요. 주소를 확인하고 다시 시도해주세요.' });
+  }
+  res.json({ ok: true });
+}));
+
 app.post('/api/signup', wrap(async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
+  const email = normEmail(req.body.email);
   const password = String(req.body.password || '');
   const nickname = String(req.body.nickname || '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
+  const code = String(req.body.code || '').trim();
+  if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
   if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '비밀번호는 8~72자로 해주세요.' });
   if (nickname.length < 1 || nickname.length > 20) return res.status(400).json({ error: '닉네임은 1~20자로 해주세요.' });
+  if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: '이메일로 받은 6자리 인증번호를 입력해주세요.' });
+  // 시도 횟수를 먼저 원자적으로 올린다 → 동시 요청으로 5회 제한을 넘길 수 없다
+  const r0 = await q('UPDATE email_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < 5 AND expires_at > NOW()', [email]);
+  if (!r0.affectedRows) return res.status(400).json({ error: '인증번호가 만료됐어요. 다시 받아주세요.' });
+  const [ec] = await q('SELECT code_hash FROM email_codes WHERE email = ?', [email]);
+  if (!ec || !crypto.timingSafeEqual(Buffer.from(sha(code)), Buffer.from(ec.code_hash)))
+    return res.status(400).json({ error: '인증번호가 맞지 않아요.' });
   try {
     const r = await q('INSERT INTO users (email, password_hash, nickname) VALUES (?, ?, ?)',
       [email, await bcrypt.hash(password, 10), nickname]);
+    await q('DELETE FROM email_codes WHERE email = ?', [email]);
     const user = await getUser(r.insertId);
     await login(req, user);
     res.json({ user: pub(user) });
@@ -282,4 +330,4 @@ if (require.main === module) {
   }).catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { server, init, pool, store };
+module.exports = { server, init, pool, store, mail };

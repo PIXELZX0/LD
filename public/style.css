@@ -72,3 +72,6 @@ ol.steps { padding-left: 1.2em; } ol.steps li { margin-bottom: 12px; }
 .notice { align-self: center; font-size: .8rem; color: var(--muted); }
 .send { display: flex; gap: 8px; padding: 14px 22px 20px; border-top: 1px solid var(--line); }
 .send textarea { flex: 1; min-height: 46px; max-height: 160px; }
+.inline { display: flex; gap: 8px; }
+.inline input { flex: 1; min-width: 0; }
+.inline .btn { white-space: nowrap; }

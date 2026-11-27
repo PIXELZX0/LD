@@ -14,7 +14,14 @@
   <h1>회원가입</h1>
   <p class="sub">닉네임만 상담자에게 보여요.</p>
   <form id="f">
-    <label>이메일 <input name="email" type="email" required autocomplete="email"></label>
+    <label>이메일
+      <span class="inline">
+        <input name="email" id="email" type="email" required autocomplete="email">
+        <button type="button" class="btn" id="send">인증번호 받기</button>
+      </span>
+    </label>
+    <label>인증번호 <input name="code" id="code" inputmode="numeric" pattern="\d{6}" maxlength="6" required autocomplete="one-time-code" placeholder="메일로 받은 6자리"></label>
+    <p class="muted" id="info"></p>
     <label>비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
     <label>닉네임 <input name="nickname" maxlength="20" required></label>
     <p class="err" id="err"></p>
@@ -24,6 +31,23 @@
 </main>
 <script>
 boot();
+let timer;
+send.onclick = async () => {
+  err.textContent = '';
+  if (!email.reportValidity()) return;
+  send.disabled = true;
+  try {
+    await api('/api/email/code', { email: email.value });
+    info.textContent = `${email.value} 로 인증번호를 보냈어요. 10분 안에 입력해주세요. (스팸함도 확인해주세요)`;
+    code.focus();
+    let left = 60;
+    clearInterval(timer);
+    timer = setInterval(() => {
+      send.textContent = --left > 0 ? `다시 받기 (${left})` : '다시 받기';
+      if (left <= 0) { clearInterval(timer); send.disabled = false; }
+    }, 1000);
+  } catch (x) { err.textContent = x.message; send.disabled = false; }
+};
 f.onsubmit = async (e) => {
   e.preventDefault();
   try { await api('/api/signup', Object.fromEntries(new FormData(f))); location.href = '/my'; }

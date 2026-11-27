@@ -4,7 +4,11 @@ process.env.ADMIN_PASSWORD ||= 'admin-pass-123';
 const test = require('node:test');
 const assert = require('node:assert');
 const { io: ioc } = require('socket.io-client');
-const { server, init, pool, store } = require('./server');
+const { server, init, pool, store, mail } = require('./server');
+
+const sent = [];
+mail.send = async (m) => { sent.push(m); };
+const lastCode = (to) => sent.filter((m) => m.to === to).at(-1).text.match(/\d{6}/)[0];
 
 let base;
 test.before(async () => {
@@ -46,8 +50,20 @@ test('전체 흐름', async () => {
   const cid = c.body.id;
 
   // 회원 → 상담자 지원 → 관리자 승인
+  // 이메일 인증
   const coun = client();
-  assert.equal((await coun('/api/signup', { email: rnd() + '@t.io', password: 'password1', nickname: '상담이' })).status, 200);
+  const email = rnd() + '@t.io';
+  const form = { email, password: 'password1', nickname: '상담이' };
+  assert.equal((await coun('/api/signup', form)).status, 400); // 인증번호 없음
+  assert.equal((await coun('/api/signup', { ...form, code: '123456' })).status, 400); // 발송 전
+  assert.equal((await coun('/api/email/code', { email })).status, 200);
+  assert.equal((await coun('/api/email/code', { email })).status, 429); // 1분 쿨다운
+  const code = lastCode(email);
+  const wrong = code === '000000' ? '111111' : '000000';
+  assert.equal((await coun('/api/signup', { ...form, code: wrong })).status, 400);
+  assert.equal((await coun('/api/signup', { ...form, code })).status, 200);
+  assert.equal((await coun('/api/email/code', { email })).status, 409); // 이미 가입
+  assert.equal((await client()('/api/email/code', { email: process.env.ADMIN_EMAIL })).status, 409);
   assert.equal((await coun('/api/consultations/waiting')).status, 403);
   assert.equal((await coun('/api/apply', { intro: '열 글자 넘는 자기소개입니다' })).status, 200);
   const adm = client();
