@@ -30,14 +30,13 @@ p a:hover, .muted a:hover { color: var(--rose); text-decoration-color: var(--ros
 .logo { font-weight: 900; font-size: 1.35rem; letter-spacing: -.04em; text-decoration: none; white-space: nowrap; }
 .logo small { font-weight: 600; font-size: .78rem; letter-spacing: .04em; margin-left: 6px; color: var(--muted); }
 .logo b { color: var(--rose); }
-.nav { display: flex; gap: 4px; align-items: center; font-size: .9rem; color: var(--muted); }
+.nav { display: flex; gap: 4px; align-items: center; font-size: .9rem; color: var(--muted); margin-left: auto; }
 .nav a:not(.btn) {
   text-decoration: none; padding: 8px 10px; border-radius: 10px; white-space: nowrap;
   transition: color .2s, background .2s;
 }
 .nav a:not(.btn):hover { color: var(--ink); background: var(--tint); }
 .nav a[aria-current="page"] { color: var(--ink); font-weight: 600; }
-.nav .btn { margin-left: 8px; }
 .who-chip { font-size: .8rem; color: var(--muted); padding: 0 6px; white-space: nowrap; }
 
 /* 본문 */
@@ -118,6 +117,7 @@ td .btn + .btn { margin-left: 6px; }
 
 /* 이용방법 단계 */
 .steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); counter-reset: step; }
+@media (min-width: 960px) { .steps { grid-template-columns: repeat(5, 1fr); } }
 .steps li { counter-increment: step; border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
 .steps li::before { content: counter(step, decimal-leading-zero); display: block; font-weight: 800; font-size: .8rem; letter-spacing: .1em; color: var(--rose); margin-bottom: 10px; }
 .steps b { display: block; font-size: 1rem; margin-bottom: 4px; }
@@ -160,7 +160,7 @@ main.chat { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column
   .logo small { display: none; }
   .nav { order: 3; width: calc(100% + var(--gutter) * 2); margin: 0 calc(var(--gutter) * -1); padding: 0 var(--gutter) 4px; overflow-x: auto; scrollbar-width: none; }
   .nav::-webkit-scrollbar { display: none; }
-  .nav .btn { margin-left: auto; }
+  .cta { margin-left: auto; }
   .wrap { padding-top: 32px; padding-bottom: 72px; }
   .panel { padding: 24px 20px; }
   .split { grid-template-columns: 1fr; }

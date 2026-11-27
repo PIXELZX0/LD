@@ -32,15 +32,13 @@ async function boot(need) {
     nav.append(el('span', { class: 'who-chip' }, user.nickname + (user.is_anonymous ? ' (익명)' : '') + '님'), link('/my', '내 상담'));
     if (user.role === 'counselor' || user.role === 'admin') nav.append(link('/counselor', '상담자'));
     if (user.role === 'admin') nav.append(link('/admin', '관리자'));
-    nav.append(el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'),
-      el('a', { class: 'btn sm primary', href: '/new' }, '새 상담'));
+    nav.append(el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'));
   } else {
-    nav.append(link('/guide', '이용방법'), link('/about', '소개'), link('/login', '로그인'),
-      el('a', { class: 'btn sm primary', href: '/signup' }, '회원가입'));
+    nav.append(link('/guide', '이용방법'), link('/about', '소개'), link('/login', '로그인'));
   }
   document.body.prepend(el('header', { class: 'top' }, el('div', { class: 'top-in' },
     el('a', { class: 'logo', href: '/', 'aria-label': 'Love Design 처음으로' }, 'LD♡', el('small', {}, el('b', {}, 'L'), 'ove ', el('b', {}, 'D'), 'esign')),
-    nav)));
+    nav, user ? el('a', { class: 'btn sm primary cta', href: '/new' }, '새 상담') : el('a', { class: 'btn sm primary cta', href: '/signup' }, '회원가입'))));
   if (!document.querySelector('main.chat')) {
     document.body.append(el('footer', { class: 'foot' }, el('div', { class: 'foot-in' },
       el('nav', { 'aria-label': '사이트 안내' }, el('a', { href: '/guide' }, '이용방법안내'), el('a', { href: '/about' }, '사이트 소개')),
