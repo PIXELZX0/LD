@@ -10,9 +10,12 @@
 <script src="/app.js"></script>
 </head>
 <body>
-<main class="wrap">
-  <h1>회원가입</h1>
-  <p class="sub">닉네임만 상담자에게 보여요.</p>
+<main class="wrap narrow">
+ <div class="panel">
+  <div class="page-head">
+    <h1>회원가입</h1>
+    <p class="sub">닉네임만 상담자에게 보여요.</p>
+  </div>
   <form id="f">
     <label>이메일
       <span class="inline">
@@ -27,7 +30,8 @@
     <p class="err" id="err"></p>
     <button class="btn primary">가입하기</button>
   </form>
-  <p class="muted">이미 회원이신가요? <a href="/login">로그인</a></p>
+  <p class="muted panel-foot">이미 회원이신가요? <a href="/login">로그인</a></p>
+ </div>
 </main>
 <script>
 boot();

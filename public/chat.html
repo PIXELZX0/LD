@@ -11,8 +11,10 @@
 </head>
 <body>
 <main class="chat">
-  <div class="head row"><div><b id="title"></b> <span id="st"></span><div class="muted" id="info"></div></div>
-    <button class="btn sm" id="endBtn" hidden>상담 종료</button></div>
+  <div class="head row">
+    <div><a class="back" id="back" href="/my">← 내 상담</a><div class="t"><b id="title"></b> <span id="st"></span></div><div class="muted" id="info"></div></div>
+    <button class="btn sm" id="endBtn" hidden>상담 종료</button>
+  </div>
   <div class="msgs" id="msgs"></div>
   <form class="send" id="f"><textarea id="t" maxlength="2000" placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)" required></textarea><button class="btn primary">전송</button></form>
 </main>
@@ -43,6 +45,7 @@ boot(true).then(async ({ user }) => {
   try { data = await api('/api/consultations/' + id); }
   catch (x) { document.querySelector('main').replaceChildren(el('p', { class: 'wrap' }, x.message)); return; }
   c = data.consultation; render(); data.messages.forEach(add);
+  if (me.id !== c.client_id && (me.role === 'counselor' || me.role === 'admin')) { back.href = '/counselor'; back.textContent = '← 상담자'; }
   if (c.status === 'closed') msgs.append(el('div', { class: 'notice' }, '종료된 상담이에요.'));
   const s = io();
   s.on('connect', () => s.emit('join', id));
@@ -57,8 +60,10 @@ boot(true).then(async ({ user }) => {
     e.preventDefault();
     const body = t.value.trim(); if (!body) return;
     s.emit('send', { id, body }, (r) => { if (r && r.error) alert(r.error); });
-    t.value = '';
+    t.value = ''; grow();
   };
+  const grow = () => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight + 2, 160) + 'px'; };
+  t.oninput = grow;
   t.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); f.requestSubmit(); } };
   endBtn.onclick = async () => { if (confirm('상담을 종료할까요?')) await api(`/api/consultations/${id}/close`, {}).catch((x) => alert(x.message)); };
 });

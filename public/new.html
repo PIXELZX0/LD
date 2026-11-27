@@ -10,9 +10,13 @@
 <script src="/app.js"></script>
 </head>
 <body>
-<main class="wrap">
-  <h1>고민 남기기</h1>
-  <p class="sub" id="sub">상담자가 수락하면 실시간 채팅이 시작돼요.</p>
+<main class="wrap read">
+ <div class="panel">
+  <div class="page-head">
+    <span class="eyebrow">NEW</span>
+    <h1>고민 남기기</h1>
+    <p class="sub" id="sub">상담자가 수락하면 실시간 채팅이 시작돼요.</p>
+  </div>
   <form id="f">
     <label>분야 <select name="category" id="cat"></select></label>
     <label>제목 <input name="title" maxlength="120" required></label>
@@ -20,6 +24,7 @@
     <p class="err" id="err"></p>
     <button class="btn primary">상담 요청하기</button>
   </form>
+ </div>
 </main>
 <script>
 boot(true).then(({ user, categories }) => {

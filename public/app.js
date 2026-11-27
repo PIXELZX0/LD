@@ -25,17 +25,28 @@ const statusTag = (s) => el('span', { class: 'tag ' + s }, STATUS[s]);
 // 상단바를 그리고 로그인 정보를 돌려준다. need: true(로그인 필요) 또는 역할 배열
 async function boot(need) {
   const { user, categories } = await api('/api/me');
-  const nav = el('nav', { class: 'nav' });
+  const here = location.pathname.replace(/\.html$/, '');
+  const link = (href, text) => el('a', { href, 'aria-current': here === href ? 'page' : false }, text);
+  const nav = el('nav', { class: 'nav', 'aria-label': '주요 메뉴' });
   if (user) {
-    if (user.role === 'counselor' || user.role === 'admin') nav.append(el('a', { href: '/counselor' }, '상담자'));
-    if (user.role === 'admin') nav.append(el('a', { href: '/admin' }, '관리자'));
-    nav.append(el('a', { href: '/new' }, '새 상담'), el('a', { href: '/my' }, user.nickname),
-      el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'));
+    nav.append(el('span', { class: 'who-chip' }, user.nickname + (user.is_anonymous ? ' (익명)' : '') + '님'), link('/my', '내 상담'));
+    if (user.role === 'counselor' || user.role === 'admin') nav.append(link('/counselor', '상담자'));
+    if (user.role === 'admin') nav.append(link('/admin', '관리자'));
+    nav.append(el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'),
+      el('a', { class: 'btn sm primary', href: '/new' }, '새 상담'));
   } else {
-    nav.append(el('a', { href: '/guide' }, '이용방법'), el('a', { href: '/about' }, '소개'), el('a', { href: '/login' }, '로그인'));
+    nav.append(link('/guide', '이용방법'), link('/about', '소개'), link('/login', '로그인'),
+      el('a', { class: 'btn sm primary', href: '/signup' }, '회원가입'));
   }
-  document.body.prepend(el('header', { class: 'top' },
-    el('a', { class: 'logo', href: '/' }, 'LD♡', el('small', {}, el('b', {}, 'L'), 'ove ', el('b', {}, 'D'), 'esign')), nav));
+  document.body.prepend(el('header', { class: 'top' }, el('div', { class: 'top-in' },
+    el('a', { class: 'logo', href: '/', 'aria-label': 'Love Design 처음으로' }, 'LD♡', el('small', {}, el('b', {}, 'L'), 'ove ', el('b', {}, 'D'), 'esign')),
+    nav)));
+  if (!document.querySelector('main.chat')) {
+    document.body.append(el('footer', { class: 'foot' }, el('div', { class: 'foot-in' },
+      el('nav', { 'aria-label': '사이트 안내' }, el('a', { href: '/guide' }, '이용방법안내'), el('a', { href: '/about' }, '사이트 소개')),
+      el('span', { class: 'help' }, '위급할 땐 ', el('b', {}, '109'), ' 자살예방상담 · ', el('b', {}, '1577-0199'), ' 정신건강위기상담 · ', el('b', {}, '112·119')),
+      el('span', {}, '© Love Design'))));
+  }
   if (need && !user) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('login'); }
   if (Array.isArray(need) && !need.includes(user.role)) { document.querySelector('main').replaceChildren(el('p', {}, '권한이 없어요.')); throw new Error('role'); }
   return { user, categories };

@@ -11,11 +11,15 @@
 </head>
 <body>
 <main class="wrap">
-  <h1>관리자</h1>
+  <div class="page-head">
+    <span class="eyebrow">ADMIN</span>
+    <h1>관리자</h1>
+    <p class="sub">상담자 지원서 심사, 회원 관리, 전체 상담 현황을 확인해요.</p>
+  </div>
   <div class="tabs" role="tablist">
-    <button class="btn sm" data-t="apps">상담자 지원</button>
-    <button class="btn sm" data-t="users">회원</button>
-    <button class="btn sm" data-t="cons">전체 상담</button>
+    <button class="btn sm" role="tab" data-t="apps">상담자 지원</button>
+    <button class="btn sm" role="tab" data-t="users">회원</button>
+    <button class="btn sm" role="tab" data-t="cons">전체 상담</button>
   </div>
   <div id="out"></div>
 </main>
@@ -23,7 +27,9 @@
 const APP = { pending: '심사중', approved: '승인됨', rejected: '거절됨' };
 let me;
 const act = (fn) => async () => { try { await fn(); } catch (x) { alert(x.message); } show(cur); };
-const table = (head, rows) => el('table', {}, el('tr', {}, head.map((h) => el('th', {}, h))), rows);
+const table = (head, rows) => rows.length
+  ? el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))), el('tbody', {}, rows)))
+  : el('p', { class: 'empty' }, '아직 항목이 없어요.');
 const views = {
   async apps() {
     const rows = await api('/api/admin/applications');
@@ -32,7 +38,7 @@ const views = {
       el('td', { style: 'white-space:pre-wrap' }, a.intro),
       el('td', {}, APP[a.status], el('div', { class: 'muted' }, fmt(a.created_at))),
       el('td', {}, a.status === 'pending' ? [
-        el('button', { class: 'btn sm primary', onclick: act(() => api(`/api/admin/applications/${a.id}/approve`, {})) }, '승인'), ' ',
+        el('button', { class: 'btn sm primary', onclick: act(() => api(`/api/admin/applications/${a.id}/approve`, {})) }, '승인'),
         el('button', { class: 'btn sm', onclick: act(() => api(`/api/admin/applications/${a.id}/reject`, {})) }, '거절')] : null))));
   },
   async users() {

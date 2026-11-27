@@ -32,21 +32,6 @@
     overflow-x: hidden;
   }
 
-  /* 테두리를 도는 LD ♡ 루프 */
-  .frame {
-    position: fixed; inset: 0;
-    width: 100%; height: 100%;
-    pointer-events: none;
-  }
-  .frame text {
-    font-weight: 800;
-    font-size: 14px;
-    letter-spacing: .06em;
-    fill: var(--ink);
-  }
-  .frame .h { fill: var(--ink); }
-  .frame .track { fill: none; stroke: none; }
-
   main { text-align: center; max-width: 720px; position: relative; }
 
   .ld {
@@ -115,6 +100,24 @@
   .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
   .btn.primary:hover { background: var(--rose); border-color: var(--rose); }
   .btn:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+  .hint { margin: 18px 0 0; font-size: .84rem; color: var(--muted); }
+  .hint a { color: var(--ink); text-underline-offset: 3px; text-decoration-color: var(--rose-soft); }
+  .hint a:hover { color: var(--rose); text-decoration-color: var(--rose); }
+
+  .topnav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 3;
+    display: flex; justify-content: flex-end;
+    padding: 18px 24px;
+  }
+  .topnav nav { display: flex; gap: 4px; font-size: .88rem; }
+  .topnav a {
+    color: var(--muted); text-decoration: none;
+    padding: 10px 12px; border-radius: 10px;
+    transition: color .2s, background .2s;
+  }
+  .topnav a:hover { color: var(--ink); background: #faf7f5; }
+  .topnav a:focus-visible, .hint a:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+
   footer {
     position: fixed; left: 0; right: 0; bottom: 46px;
     text-align: center; font-size: .72rem; letter-spacing: .14em;
@@ -129,7 +132,6 @@
   }
 
   @media (max-width: 480px) {
-    .frame text { font-size: 12px; }
     footer { bottom: 38px; }
   }
 
@@ -166,10 +168,13 @@
 </style>
 </head>
 <body>
-  <svg class="frame" aria-hidden="true">
-    <path id="loop" class="track" />
-    <text><textPath id="ring" href="#loop"></textPath></text>
-  </svg>
+  <header class="topnav">
+    <nav aria-label="사이트 안내">
+      <a href="/guide">이용방법</a>
+      <a href="/about">소개</a>
+      <a href="/login">로그인</a>
+    </nav>
+  </header>
 
   <div class="glow" aria-hidden="true"></div>
   <main>
@@ -181,9 +186,8 @@
     <nav class="menu">
       <button type="button" class="btn primary" id="anon">익명으로 이용하기</button>
       <a class="btn primary" href="/login">회원으로 이용하기</a>
-      <a class="btn" href="/guide">이용방법안내</a>
-      <a class="btn" href="/about">사이트 소개</a>
     </nav>
+    <p class="hint">처음이라면 <a href="/guide">이용방법</a>부터 살펴보세요</p>
   </main>
   <footer>yourloveour.design</footer>
 
@@ -193,80 +197,6 @@ document.getElementById('anon').addEventListener('click', async function () {
   var r = await fetch('/api/anon', { method: 'POST' });
   if (r.ok) location.href = '/new'; else { this.disabled = false; alert('잠시 후 다시 시도해주세요.'); }
 });
-(function () {
-  var svg = document.querySelector('.frame');
-  var path = document.getElementById('loop');
-  var ring = document.getElementById('ring');
-  var UNIT = 'LD ♡ ';
-  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var per = 0, unitLen = 0, offset = 0, last = 0;
-  var SPEED = 40; // px per second
-  var boost = 0;  // 마우스를 빠르게 움직이면 테두리가 잠깐 빨라진다
-  window.__ldBoost = function (v) { boost = Math.min(600, boost + v); };
-
-  function build() {
-    var w = window.innerWidth, h = window.innerHeight;
-    var m = w < 480 ? 16 : 22;     // 화면 가장자리와의 간격
-    var r = w < 480 ? 18 : 28;     // 모서리 둥글기
-    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-    var x0 = m, y0 = m, x1 = w - m, y1 = h - m;
-    path.setAttribute('d',
-      'M' + (x0 + r) + ' ' + y0 +
-      ' H' + (x1 - r) + ' A' + r + ' ' + r + ' 0 0 1 ' + x1 + ' ' + (y0 + r) +
-      ' V' + (y1 - r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x1 - r) + ' ' + y1 +
-      ' H' + (x0 + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + x0 + ' ' + (y1 - r) +
-      ' V' + (y0 + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x0 + r) + ' ' + y0 + ' Z');
-    per = path.getTotalLength();
-
-    // 한 단위(LD ♡) 길이를 재고, 둘레에 정수 개가 딱 맞도록 간격을 조정한다
-    ring.textContent = '';
-    appendUnit();
-    var natural = ring.getComputedTextLength() || 60;
-    var n = Math.max(4, Math.round(per / natural));
-    unitLen = per / n;
-    ring.textContent = '';
-    for (var i = 0; i < n + 1; i++) appendUnit();
-    ring.setAttribute('textLength', unitLen * (n + 1));
-    ring.setAttribute('lengthAdjust', 'spacing');
-    // 글자를 선 바로 바깥쪽이 아닌 가운데에 오게
-    ring.setAttribute('dy', '0.35em');
-    offset = offset % unitLen;
-    paint();
-  }
-
-  function appendUnit() {
-    var ns = 'http://www.w3.org/2000/svg';
-    var a = document.createElementNS(ns, 'tspan'); a.textContent = 'LD ';
-    var b = document.createElementNS(ns, 'tspan'); b.textContent = '♡ '; b.setAttribute('class', 'h');
-    ring.appendChild(a); ring.appendChild(b);
-  }
-
-  function paint() {
-    ring.setAttribute('startOffset', (offset - unitLen).toFixed(2));
-  }
-
-  function tick(t) {
-    if (last) {
-      offset = (offset + (SPEED + boost) * (t - last) / 1000) % unitLen;
-      boost *= 0.94;
-      paint();
-    }
-    last = t;
-    requestAnimationFrame(tick);
-  }
-
-  var resizeTimer;
-  window.addEventListener('resize', function () {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(build, 80);
-  });
-
-  function start() {
-    build();
-    if (!reduce) requestAnimationFrame(tick);
-  }
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
-})();
 </script>
 
 <script>
@@ -307,7 +237,6 @@ document.getElementById('anon').addEventListener('click', async function () {
 
     if (lastX !== null) {
       var dist = Math.hypot(mx - lastX, my - lastY);
-      if (window.__ldBoost) window.__ldBoost(dist * 1.2);
       var now = performance.now();
       if (finePointer && e.pointerType === 'mouse' && dist > 2 && now - lastSpark > 30) {
         lastSpark = now;
@@ -339,7 +268,6 @@ document.getElementById('anon').addEventListener('click', async function () {
         dur: .8 + Math.random() * .5
       });
     }
-    if (window.__ldBoost) window.__ldBoost(400);
   });
 
   function loop(t) {

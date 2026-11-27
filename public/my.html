@@ -11,16 +11,22 @@
 </head>
 <body>
 <main class="wrap">
-  <div class="row"><h1>내 상담</h1><a class="btn primary" href="/new">새 상담</a></div>
+  <div class="page-head row">
+    <div><h1>내 상담</h1><p class="sub">진행 중이거나 지난 상담을 다시 볼 수 있어요.</p></div>
+    <a class="btn primary" href="/new">새 상담 시작</a>
+  </div>
   <div class="list" id="list"></div>
   <section id="apply" hidden>
     <h2>상담자 지원</h2>
-    <div id="apps" class="muted"></div>
+    <div class="card">
+    <p class="muted">다른 사람의 고민을 함께 들어주고 싶다면 지원해주세요. 관리자 승인 후 상담자로 활동할 수 있어요.</p>
+    <div id="apps" class="muted" style="white-space:pre-line"></div>
     <form id="f">
       <label>자기소개 · 상담 경험 <textarea name="intro" minlength="10" maxlength="2000" required></textarea></label>
       <p class="err" id="err"></p>
       <button class="btn">지원서 제출</button>
     </form>
+    </div>
   </section>
 </main>
 <script>
@@ -30,7 +36,7 @@ boot(true).then(async ({ user }) => {
   list.replaceChildren(...(rows.length ? rows.map((c) => el('a', { class: 'card', href: '/chat?id=' + c.id },
     el('div', { class: 'row' }, el('b', {}, c.title), statusTag(c.status)),
     el('div', { class: 'muted' }, `${c.category} · ${fmt(c.created_at)} · ${c.client_id === user.id ? '상담자 ' + (c.counselor_name || '배정 전') : '내담자 ' + c.client_name}`)))
-    : [el('p', { class: 'muted' }, '아직 상담이 없어요.')]));
+    : [el('p', { class: 'empty' }, '아직 상담이 없어요. 오른쪽 위 ‘새 상담 시작’으로 고민을 남겨보세요.')]));
   if (user.role === 'user' && !user.is_anonymous) {
     apply.hidden = false;
     const apps = await api('/api/apply');
