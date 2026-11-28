@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /api/
+Disallow: /socket.io/
+
+Sitemap: https://yourloveour.design/sitemap.xml
