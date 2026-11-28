@@ -230,3 +230,76 @@ test('내 정보', async () => {
   assert.equal((await again('/api/me')).body.user, null);
   assert.ok((await (await fetch(base + '/account')).text()).includes('내 정보'));
 });
+
+test('상담 기록·후기', async () => {
+  const adm = client();
+  assert.equal((await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD })).status, 200);
+  async function counselor(nickname) {
+    const call = client(), email = rnd() + '@t.io';
+    await call('/api/email/code', { email });
+    assert.equal((await call('/api/signup', { email, password: 'password1', nickname, code: lastCode(email) })).status, 200);
+    await call('/api/apply', { intro: '열 글자 넘는 자기소개입니다' });
+    const app = (await adm('/api/admin/applications')).body.find((x) => x.email === email);
+    assert.equal((await adm(`/api/admin/applications/${app.id}/approve`, {})).status, 200);
+    return call;
+  }
+  const co = await counselor('기록이'), co2 = await counselor('남상담');
+  const cl = client(); await cl('/api/anon', {});
+  const cid = (await cl('/api/consultations', { category: '진로', title: '진로 고민', body: '어떻게 할까요' })).body.id;
+
+  // 배정 전에는 아무도 기록 못 씀, 후기도 못 씀
+  assert.equal((await co(`/api/consultations/${cid}/note`, { body: '메모' })).status, 403);
+  assert.equal((await adm(`/api/consultations/${cid}/note`, { body: '메모' })).status, 403);
+  assert.equal((await cl(`/api/consultations/${cid}/review`, { rating: 5 })).status, 400);
+  assert.equal((await co(`/api/consultations/${cid}/accept`, {})).status, 200);
+
+  // 상담 기록: 담당 상담자만, 내담자·다른 상담자 거부
+  assert.equal((await cl(`/api/consultations/${cid}/note`, { body: '메모' })).status, 403);
+  assert.equal((await co2(`/api/consultations/${cid}/note`, { body: '메모' })).status, 403);
+  assert.equal((await co(`/api/consultations/${cid}/note`, { body: 'x'.repeat(5001) })).status, 400);
+  const saved = await co(`/api/consultations/${cid}/note`, { body: '  진로 불안, 다음엔 적성 이야기  ' });
+  assert.equal(saved.status, 200); assert.equal(saved.body.note.body, '진로 불안, 다음엔 적성 이야기');
+  let d = (await co(`/api/consultations/${cid}`)).body;
+  assert.equal(d.note.body, '진로 불안, 다음엔 적성 이야기'); assert.equal(d.note.author, '기록이'); assert.ok(d.can_note);
+  d = (await cl(`/api/consultations/${cid}`)).body;
+  assert.equal(d.note, null); assert.ok(!d.can_note); // 내담자에겐 안 보임
+  assert.equal((await adm(`/api/consultations/${cid}`)).body.note.body, '진로 불안, 다음엔 적성 이야기');
+
+  // 후기: 종료 전 거부 → 종료 후 내담자만, 다시 쓰면 수정
+  assert.equal((await cl(`/api/consultations/${cid}/review`, { rating: 5 })).status, 400);
+  assert.equal((await cl(`/api/consultations/${cid}/close`, {})).status, 200);
+  assert.equal((await co(`/api/consultations/${cid}/review`, { rating: 5 })).status, 403);
+  assert.equal((await cl(`/api/consultations/${cid}/review`, { rating: 0 })).status, 400);
+  assert.equal((await cl(`/api/consultations/${cid}/review`, { rating: 4.5 })).status, 400);
+  assert.equal((await cl(`/api/consultations/${cid}/review`, { rating: 3, body: '그럭저럭' })).status, 200);
+  const rv = await cl(`/api/consultations/${cid}/review`, { rating: 5, body: '큰 도움이 됐어요' });
+  assert.equal(rv.status, 200); assert.equal(rv.body.review.rating, 5);
+  assert.equal((await cl(`/api/consultations/${cid}`)).body.review.body, '큰 도움이 됐어요');
+  assert.equal((await co(`/api/consultations/${cid}`)).body.review.rating, 5);
+  assert.equal((await cl('/api/consultations/mine')).body.find((x) => x.id === cid).rating, 5);
+  // 종료 뒤에도 기록은 고칠 수 있음
+  assert.equal((await co(`/api/consultations/${cid}/note`, { body: '종결. 적성검사 권유' })).status, 200);
+
+  // 상담 기록 모아보기: 상담자는 내 것만, 관리자는 전체 + 상담자 필터
+  assert.equal((await cl('/api/records')).status, 403);
+  const mine = (await co('/api/records')).body;
+  assert.deepEqual(mine.rows.map((r) => r.id), [cid]);
+  assert.equal(mine.rows[0].counselor_name, '기록이');
+  assert.equal(mine.rows[0].note, '종결. 적성검사 권유');
+  assert.equal(mine.rows[0].review, '큰 도움이 됐어요');
+  assert.equal(mine.rows[0].msg_count, 1);
+  assert.deepEqual(mine.counselors.map((x) => [x.nickname, x.total, x.closed, x.reviews, x.avg_rating]), [['기록이', 1, 1, 1, 5]]);
+  assert.equal((await co2('/api/records')).body.rows.length, 0);
+  const all = (await adm('/api/records')).body;
+  assert.ok(all.rows.some((r) => r.id === cid));
+  const byId = mine.rows[0].counselor_id;
+  const filtered = (await adm('/api/records?counselor=' + byId)).body.rows;
+  assert.ok(filtered.length && filtered.every((r) => r.counselor_id === byId));
+  assert.ok((await adm('/api/records?q=' + encodeURIComponent('적성검사'))).body.rows.some((r) => r.id === cid));
+  assert.equal((await adm('/api/records?q=' + encodeURIComponent('100%_없음'))).body.rows.length, 0);
+  assert.equal((await co('/api/records?status=active')).body.rows.length, 0);
+  // 내용을 비우면 기록 삭제
+  assert.equal((await co(`/api/consultations/${cid}/note`, { body: '' })).body.note, null);
+  assert.equal((await co(`/api/consultations/${cid}`)).body.note, null);
+  assert.ok((await (await fetch(base + '/records')).text()).includes('상담 기록'));
+});

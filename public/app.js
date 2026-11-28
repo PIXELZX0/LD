@@ -21,6 +21,8 @@ function el(tag, attrs, ...kids) {
 const STATUS = { waiting: '대기중', active: '상담중', closed: '종료' };
 const ROLE = { user: '일반', counselor: '상담자', admin: '관리자' };
 const statusTag = (s) => el('span', { class: 'tag ' + s }, STATUS[s]);
+// 별점 표시 (읽기 전용)
+const stars = (n) => el('span', { class: 'rate', 'aria-label': `별점 ${n}점` }, '★'.repeat(n), el('i', {}, '★'.repeat(5 - n)));
 
 // 상단바를 그리고 로그인 정보를 돌려준다. need: true(로그인 필요) 또는 역할 배열
 async function boot(need) {
@@ -30,7 +32,7 @@ async function boot(need) {
   const nav = el('nav', { class: 'nav', 'aria-label': '주요 메뉴' });
   if (user) {
     nav.append(el('span', { class: 'who-chip' }, user.nickname + (user.is_anonymous && !user.nickname.startsWith('익명') ? ' (익명)' : '') + '님'), link('/my', '내 상담'), link('/account', '내 정보'));
-    if (user.role === 'counselor' || user.role === 'admin') nav.append(link('/counselor', '상담자'));
+    if (user.role === 'counselor' || user.role === 'admin') nav.append(link('/counselor', '상담자'), link('/records', '상담 기록'));
     if (user.role === 'admin') nav.append(link('/admin', '관리자'));
     nav.append(el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'));
   } else {

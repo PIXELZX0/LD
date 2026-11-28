@@ -13,15 +13,45 @@
 <main class="chat">
   <div class="head row">
     <div><a class="back" id="back" href="/my">← 내 상담</a><div class="t"><b id="title"></b> <span id="st"></span></div><div class="muted" id="info"></div></div>
-    <button class="btn sm" id="endBtn" hidden>상담 종료</button>
+    <div class="head-act">
+      <button class="btn sm" id="noteBtn" hidden>상담 기록</button>
+      <button class="btn sm" id="reviewBtn" hidden>후기 남기기</button>
+      <button class="btn sm" id="endBtn" hidden>상담 종료</button>
+    </div>
   </div>
   <div class="msgs" id="msgs"></div>
   <form class="send" id="f"><textarea id="t" maxlength="2000" placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)" required></textarea><button class="btn primary">전송</button></form>
 </main>
+<dialog class="sheet" id="noteDlg" aria-labelledby="noteH">
+  <form id="noteF">
+    <div class="row"><h2 id="noteH">상담 기록</h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
+    <p class="muted">담당 상담자와 관리자만 볼 수 있어요. 내담자에게는 보이지 않아요.</p>
+    <textarea name="body" maxlength="5000" placeholder="주요 고민&#10;상담 내용 요약&#10;다음에 이어갈 점"></textarea>
+    <div class="row"><span class="muted" id="noteMeta"></span><span class="muted" id="noteCount"></span></div>
+    <p class="err" id="noteErr"></p>
+    <button class="btn primary">저장</button>
+  </form>
+</dialog>
+<dialog class="sheet" id="reviewDlg" aria-labelledby="reviewH">
+  <form id="reviewF">
+    <div class="row"><h2 id="reviewH">상담 후기</h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
+    <p class="muted">상담은 어떠셨나요? 남긴 후기는 담당 상담자와 관리자가 볼 수 있어요.</p>
+    <fieldset class="stars"><legend>만족도</legend>
+      <input type="radio" name="rating" value="5" id="r5"><label for="r5" title="5점">★</label>
+      <input type="radio" name="rating" value="4" id="r4"><label for="r4" title="4점">★</label>
+      <input type="radio" name="rating" value="3" id="r3"><label for="r3" title="3점">★</label>
+      <input type="radio" name="rating" value="2" id="r2"><label for="r2" title="2점">★</label>
+      <input type="radio" name="rating" value="1" id="r1"><label for="r1" title="1점">★</label>
+    </fieldset>
+    <label><span>하고 싶은 말 <span class="muted">(선택)</span></span><textarea name="body" maxlength="1000" placeholder="도움이 된 점, 아쉬웠던 점을 자유롭게 적어주세요."></textarea></label>
+    <p class="err" id="reviewErr"></p>
+    <button class="btn primary">후기 저장</button>
+  </form>
+</dialog>
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const id = Number(new URLSearchParams(location.search).get('id'));
-let me, c;
+let me, c, note, review, canNote;
 function add(m) {
   msgs.append(el('div', { class: 'msg' + (m.sender_id === me.id ? ' me' : '') },
     el('div', { class: 'who' }, m.nickname + (m.role === 'counselor' || m.role === 'admin' ? ' · ' + ROLE[m.role] : '') + ' · ' + fmt(m.created_at).slice(11)),
@@ -33,6 +63,12 @@ function render() {
   st.replaceChildren(statusTag(c.status));
   info.textContent = `${c.category} · 내담자 ${c.client_name} · 상담자 ${c.counselor_name || '배정 대기중'}`;
   const part = me.id === c.client_id || me.id === c.counselor_id;
+  noteBtn.hidden = !canNote;
+  noteBtn.textContent = note ? '상담 기록 ✓' : '상담 기록';
+  const isClient = me.id === c.client_id;
+  reviewBtn.hidden = !(isClient && c.status === 'closed' && c.counselor_name);
+  reviewBtn.textContent = review ? '내 후기 ' + '★'.repeat(review.rating) : '후기 남기기';
+  reviewBtn.classList.toggle('primary', !review);
   endBtn.hidden = c.status === 'closed' || !(part || me.role === 'admin') || (c.status === 'waiting' && me.id !== c.client_id && me.role !== 'admin');
   const canSend = c.status === 'active' && part;
   f.hidden = !canSend && c.status !== 'waiting';
@@ -44,16 +80,22 @@ boot(true).then(async ({ user }) => {
   let data;
   try { data = await api('/api/consultations/' + id); }
   catch (x) { document.querySelector('main').replaceChildren(el('p', { class: 'wrap' }, x.message)); return; }
-  c = data.consultation; render(); data.messages.forEach(add);
+  c = data.consultation; note = data.note; review = data.review; canNote = data.can_note;
+  render(); data.messages.forEach(add);
   if (me.id !== c.client_id && (me.role === 'counselor' || me.role === 'admin')) { back.href = '/counselor'; back.textContent = '← 상담자'; }
-  if (c.status === 'closed') msgs.append(el('div', { class: 'notice' }, '종료된 상담이에요.'));
+  if (c.status === 'closed') closedNotice();
+  if (canNote && new URLSearchParams(location.search).has('note')) openNote();
   const s = io();
   s.on('connect', () => s.emit('join', id));
   s.on('msg', add);
   s.on('status', ({ status, counselor }) => {
     c.status = status; if (counselor) c.counselor_name = counselor;
     render();
-    msgs.append(el('div', { class: 'notice' }, status === 'active' ? `${counselor} 상담자가 연결됐어요.` : '상담이 종료됐어요.'));
+    if (status === 'active') {
+      if (me.role === 'admin') canNote = true; // 상담자가 배정되면 관리자도 기록을 쓸 수 있다
+      render();
+      msgs.append(el('div', { class: 'notice' }, `${counselor} 상담자가 연결됐어요.`));
+    } else closedNotice('상담이 종료됐어요.');
     msgs.scrollTop = msgs.scrollHeight;
   });
   f.onsubmit = (e) => {
@@ -65,8 +107,56 @@ boot(true).then(async ({ user }) => {
   const grow = () => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight + 2, 160) + 'px'; };
   t.oninput = grow;
   t.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); f.requestSubmit(); } };
+  noteBtn.onclick = openNote;
+  reviewBtn.onclick = openReview;
   endBtn.onclick = async () => { if (confirm('상담을 종료할까요?')) await api(`/api/consultations/${id}/close`, {}).catch((x) => alert(x.message)); };
 });
+
+function closedNotice(text = '종료된 상담이에요.') {
+  const ask = me.id === c.client_id && c.counselor_name && !review;
+  msgs.append(el('div', { class: 'notice' + (ask ? ' ask' : '') }, text,
+    ask ? el('button', { type: 'button', class: 'linkish', onclick: openReview }, '후기 남기기') : null));
+}
+
+document.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => b.closest('dialog').close()));
+document.querySelectorAll('dialog.sheet').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
+
+const nb = noteF.elements.body;
+const noteLen = () => { noteCount.textContent = `${nb.value.length} / 5000`; };
+nb.oninput = noteLen;
+function openNote() {
+  nb.value = note ? note.body : '';
+  noteMeta.textContent = note ? `마지막 저장 ${fmt(note.updated_at)}${note.author ? ' · ' + note.author : ''}` : '아직 저장된 기록이 없어요.';
+  noteErr.textContent = ''; noteLen();
+  noteDlg.showModal(); nb.focus();
+}
+noteF.onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    ({ note } = await api(`/api/consultations/${id}/note`, { body: nb.value }));
+    noteDlg.close(); render();
+  } catch (x) { noteErr.textContent = x.message; }
+};
+
+function openReview() {
+  reviewF.reset();
+  if (review) {
+    reviewF.elements.rating.value = String(review.rating);
+    reviewF.elements.body.value = review.body || '';
+  }
+  reviewErr.textContent = '';
+  reviewDlg.showModal();
+}
+reviewF.onsubmit = async (e) => {
+  e.preventDefault();
+  const rating = Number(reviewF.elements.rating.value);
+  if (!rating) { reviewErr.textContent = '별점을 골라주세요.'; return; }
+  try {
+    ({ review } = await api(`/api/consultations/${id}/review`, { rating, body: reviewF.elements.body.value }));
+    reviewDlg.close(); render();
+    document.querySelectorAll('.notice.ask').forEach((n) => { n.classList.remove('ask'); n.querySelector('button')?.remove(); });
+  } catch (x) { reviewErr.textContent = x.message; }
+};
 </script>
 </body>
 </html>

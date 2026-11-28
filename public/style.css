@@ -5,6 +5,7 @@
   --max: 1040px; --gutter: 24px; --radius: 16px;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* .btn·form 의 display 가 hidden 을 덮지 않게 */
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -205,4 +206,67 @@ main.chat { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column
   .stack td.act::before { content: none; }
   .stack td.act .btn + .btn { margin-left: 0; }
   .stack td.nowrap { white-space: normal; }
+}
+
+/* 별점 · 태그 묶음 */
+.rate { color: var(--rose); letter-spacing: .04em; white-space: nowrap; font-size: .9rem; }
+.rate i { font-style: normal; color: var(--line); }
+.tags { display: inline-flex; gap: 6px; align-items: center; flex: none; }
+.tag.ask { background: var(--ink); color: #fff; }
+
+/* 채팅 헤더 버튼 · 안내 */
+.chat .head-act { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: none; }
+.notice.ask { display: inline-flex; gap: 8px; align-items: center; }
+.linkish { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--rose); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* 대화상자 (상담 기록 · 후기) */
+dialog.sheet { border: 0; padding: 0; border-radius: 20px; width: min(560px, calc(100% - 32px)); max-height: calc(100svh - 48px); color: var(--ink); background: #fff; box-shadow: 0 24px 60px rgba(22, 22, 22, .18); }
+dialog.sheet::backdrop { background: rgba(22, 22, 22, .32); }
+dialog.sheet form { padding: 24px; gap: 12px; }
+dialog.sheet h2 { margin: 0; }
+dialog.sheet .row { flex-wrap: nowrap; }
+dialog.sheet p.muted { margin: 0; }
+dialog.sheet textarea { min-height: 220px; }
+.x { border: 0; background: var(--tint); width: 36px; height: 36px; border-radius: 999px; font-size: 1.2rem; line-height: 1; cursor: pointer; color: var(--muted); flex: none; }
+.x:hover { color: var(--ink); }
+
+.stars { display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: 2px; border: 0; padding: 0; margin: 0; }
+.stars legend { font-size: .88rem; font-weight: 600; margin-bottom: 4px; padding: 0; }
+.stars input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.stars label { display: block; font-size: 2.2rem; line-height: 1; padding: 2px; color: var(--line); cursor: pointer; transition: color .15s, transform .15s; }
+.stars input:checked ~ label { color: var(--rose); }
+.stars:hover input:checked ~ label { color: var(--line); }
+.stars:hover input + label:hover, .stars:hover label:hover ~ label { color: var(--rose); }
+.stars label:active { transform: scale(.9); }
+.stars input:focus-visible + label { outline: 2px solid var(--rose); border-radius: 8px; }
+
+/* 상담 기록 페이지 */
+.coun { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.coun .card { margin: 0; display: grid; gap: 2px; text-align: left; font: inherit; color: inherit; }
+.coun .card .muted { font-size: .82rem; }
+.card.pick { cursor: pointer; transition: border-color .2s, box-shadow .2s; }
+.card.pick:hover { border-color: var(--rose-soft); }
+.card.pick[aria-pressed="true"] { border-color: var(--rose); box-shadow: 0 0 0 3px var(--rose-soft); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.filters select { width: auto; flex: none; }
+.filters input { flex: 1 1 220px; width: auto; }
+.rec summary { list-style: none; cursor: pointer; }
+.rec summary::-webkit-details-marker { display: none; }
+.rec summary .row b::after { content: "▾"; color: var(--soft); font-size: .8em; margin-left: 6px; display: inline-block; transition: transform .2s; }
+.rec[open] summary .row b::after { transform: rotate(180deg); }
+.rec[open] { border-color: var(--rose-soft); }
+.rec-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.rec-body .actions { grid-column: 1 / -1; margin-top: 0; }
+.rec .block { background: var(--tint); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.rec .block h3 { font-size: .85rem; margin: 0 0 6px; color: var(--muted); }
+.rec .block p { margin: 0 0 6px; }
+.pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 720px) {
+  .chat .head { flex-wrap: wrap; }
+  .chat .head-act { margin-left: auto; }
+  dialog.sheet { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 20px 20px 0 0; max-height: 90svh; }
+  dialog.sheet form { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  .rec-body { grid-template-columns: 1fr; }
+  .filters select { flex: 1 1 40%; }
 }

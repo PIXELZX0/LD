@@ -12,6 +12,8 @@ const mail = require('./mail');
 
 const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직장', '건강', '기타'];
 const MAX_MSG = 2000;
+const MAX_NOTE = 5000;
+const MAX_REVIEW = 1000;
 
 const app = express();
 app.set('trust proxy', 1);
@@ -338,8 +340,9 @@ app.post('/api/consultations', auth(), wrap(async (req, res) => {
   res.json({ id: r.insertId });
 }));
 
-const LIST = `SELECT c.*, cl.nickname AS client_name, co.nickname AS counselor_name
-  FROM consultations c JOIN users cl ON cl.id = c.client_id LEFT JOIN users co ON co.id = c.counselor_id`;
+const LIST = `SELECT c.*, cl.nickname AS client_name, co.nickname AS counselor_name, r.rating
+  FROM consultations c JOIN users cl ON cl.id = c.client_id LEFT JOIN users co ON co.id = c.counselor_id
+  LEFT JOIN reviews r ON r.consultation_id = c.id`;
 
 app.get('/api/consultations/mine', auth(), wrap(async (req, res) => {
   res.json(await q(`${LIST} WHERE c.client_id = ? OR c.counselor_id = ? ORDER BY c.id DESC`, [req.user.id, req.user.id]));
@@ -356,7 +359,79 @@ app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
   const messages = await q(
     `SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role
      FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id]);
-  res.json({ consultation: info, messages, me: req.user.id });
+  // 상담 기록: 담당 상담자·관리자만 / 후기: 내담자·담당 상담자·관리자
+  const staffView = req.user.role === 'admin' || (c.counselor_id === req.user.id && isStaff(req.user));
+  const [note] = staffView ? await q(`SELECT n.body, n.updated_at, u.nickname AS author
+    FROM counselor_notes n LEFT JOIN users u ON u.id = n.author_id WHERE n.consultation_id = ?`, [c.id]) : [];
+  const [review] = staffView || c.client_id === req.user.id
+    ? await q('SELECT rating, body, created_at, updated_at FROM reviews WHERE consultation_id = ?', [c.id]) : [];
+  res.json({
+    consultation: info, messages, me: req.user.id,
+    note: note || null, review: review || null, can_note: staffView && !!c.counselor_id,
+  });
+}));
+
+// ── 상담 기록 (상담자 작성, 내담자에겐 보이지 않음) ──
+app.post('/api/consultations/:id/note', auth('counselor', 'admin'), wrap(async (req, res) => {
+  const [c] = await q('SELECT * FROM consultations WHERE id = ?', [req.params.id]);
+  if (!c || !c.counselor_id || (c.counselor_id !== req.user.id && req.user.role !== 'admin'))
+    return res.status(403).json({ error: '담당 상담자만 기록을 남길 수 있어요.' });
+  const body = String(req.body.body ?? '').trim();
+  if (body.length > MAX_NOTE) return res.status(400).json({ error: `상담 기록은 ${MAX_NOTE}자까지 쓸 수 있어요.` });
+  if (!body) {
+    await q('DELETE FROM counselor_notes WHERE consultation_id = ?', [c.id]);
+    return res.json({ note: null });
+  }
+  await q(`INSERT INTO counselor_notes (consultation_id, author_id, body) VALUES (?, ?, ?)
+    ON DUPLICATE KEY UPDATE author_id = VALUES(author_id), body = VALUES(body), updated_at = NOW()`, [c.id, req.user.id, body]);
+  const [note] = await q('SELECT body, updated_at FROM counselor_notes WHERE consultation_id = ?', [c.id]);
+  res.json({ note: { ...note, author: req.user.nickname } });
+}));
+
+// ── 상담 후기 (내담자, 종료된 상담에 1개 — 다시 쓰면 수정) ──
+app.post('/api/consultations/:id/review', auth(), wrap(async (req, res) => {
+  const [c] = await q('SELECT * FROM consultations WHERE id = ?', [req.params.id]);
+  if (!c || c.client_id !== req.user.id) return res.status(403).json({ error: '내 상담에만 후기를 남길 수 있어요.' });
+  if (c.status !== 'closed' || !c.counselor_id) return res.status(400).json({ error: '상담자와의 상담이 끝난 뒤에 후기를 남길 수 있어요.' });
+  const rating = Number(req.body.rating);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ error: '별점을 1~5점 중에서 골라주세요.' });
+  const body = String(req.body.body || '').trim();
+  if (body.length > MAX_REVIEW) return res.status(400).json({ error: `후기는 ${MAX_REVIEW}자까지 쓸 수 있어요.` });
+  await q(`INSERT INTO reviews (consultation_id, client_id, rating, body) VALUES (?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE rating = VALUES(rating), body = VALUES(body), updated_at = NOW()`, [c.id, req.user.id, rating, body || null]);
+  const [review] = await q('SELECT rating, body, created_at, updated_at FROM reviews WHERE consultation_id = ?', [c.id]);
+  res.json({ review });
+}));
+
+// ── 상담 기록 모아보기: 상담자는 내가 맡은 상담, 관리자는 전체 ──
+app.get('/api/records', auth('counselor', 'admin'), wrap(async (req, res) => {
+  const scope = ['c.counselor_id IS NOT NULL'], sp = [];
+  if (req.user.role !== 'admin') { scope.push('c.counselor_id = ?'); sp.push(req.user.id); }
+  const where = [...scope], params = [...sp];
+  if (req.user.role === 'admin' && req.query.counselor) { where.push('c.counselor_id = ?'); params.push(Number(req.query.counselor) || 0); }
+  if (['active', 'closed'].includes(req.query.status)) { where.push('c.status = ?'); params.push(req.query.status); }
+  const kw = String(req.query.q || '').trim().slice(0, 50);
+  if (kw) {
+    const like = '%' + kw.replace(/[\\%_]/g, '\\$&') + '%';
+    where.push('(c.title LIKE ? OR cl.nickname LIKE ? OR co.nickname LIKE ? OR n.body LIKE ? OR r.body LIKE ?)');
+    params.push(like, like, like, like, like);
+  }
+  const rows = await q(`SELECT c.id, c.title, c.category, c.status, c.created_at, c.closed_at, c.client_id, c.counselor_id,
+      cl.nickname AS client_name, co.nickname AS counselor_name,
+      (SELECT COUNT(*) FROM messages m WHERE m.consultation_id = c.id) AS msg_count,
+      n.body AS note, n.updated_at AS note_at, nu.nickname AS note_author,
+      r.rating, r.body AS review, r.updated_at AS review_at
+    FROM consultations c JOIN users cl ON cl.id = c.client_id LEFT JOIN users co ON co.id = c.counselor_id
+    LEFT JOIN counselor_notes n ON n.consultation_id = c.id LEFT JOIN users nu ON nu.id = n.author_id
+    LEFT JOIN reviews r ON r.consultation_id = c.id
+    WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT 300`, params);
+  const counselors = await q(`SELECT co.id, co.nickname, COUNT(*) AS total,
+      SUM(c.status = 'active') AS active, SUM(c.status = 'closed') AS closed,
+      COUNT(r.rating) AS reviews, ROUND(AVG(r.rating), 1) AS avg_rating
+    FROM consultations c JOIN users co ON co.id = c.counselor_id LEFT JOIN reviews r ON r.consultation_id = c.id
+    WHERE ${scope.join(' AND ')} GROUP BY co.id, co.nickname ORDER BY total DESC`, sp);
+  res.json({ rows, counselors: counselors.map((x) => ({ ...x, active: Number(x.active), closed: Number(x.closed),
+    avg_rating: x.avg_rating == null ? null : Number(x.avg_rating) })) });
 }));
 
 app.post('/api/consultations/:id/accept', auth('counselor', 'admin'), wrap(async (req, res) => {

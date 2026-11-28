@@ -34,7 +34,10 @@ const APP = { pending: '심사중', approved: '승인됨', rejected: '거절됨'
 boot(true).then(async ({ user }) => {
   const rows = await api('/api/consultations/mine');
   list.replaceChildren(...(rows.length ? rows.map((c) => el('a', { class: 'card', href: '/chat?id=' + c.id },
-    el('div', { class: 'row' }, el('b', {}, c.title), statusTag(c.status)),
+    el('div', { class: 'row' }, el('b', {}, c.title), el('span', { class: 'tags' },
+      c.client_id === user.id && c.status === 'closed' && c.counselor_id
+        ? (c.rating ? stars(c.rating) : el('span', { class: 'tag ask' }, '후기 남기기')) : null,
+      statusTag(c.status))),
     el('div', { class: 'muted' }, `${c.category} · ${fmt(c.created_at)} · ${c.client_id === user.id ? '상담자 ' + (c.counselor_name || '배정 전') : '내담자 ' + c.client_name}`)))
     : [el('p', { class: 'empty' }, '아직 상담이 없어요. ‘새 상담 시작’을 눌러 고민을 남겨보세요.')]));
   if (user.role === 'user' && !user.is_anonymous) {

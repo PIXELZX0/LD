@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>상담 기록 · Love Design</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♡</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js"></script>
+</head>
+<body>
+<main class="wrap">
+  <div class="page-head">
+    <span class="eyebrow">RECORDS</span>
+    <h1>상담 기록</h1>
+    <p class="sub" id="sub">상담자가 맡았던 상담과 상담 기록, 내담자 후기를 한곳에서 봐요.</p>
+  </div>
+  <section>
+    <h2 id="cH">상담자별 현황</h2>
+    <div class="coun" id="coun"></div>
+  </section>
+  <section>
+    <h2>전체 상담 기록 <span class="count" id="n">0</span></h2>
+    <form class="filters" id="filt" role="search">
+      <select name="counselor" id="fc" aria-label="상담자" hidden><option value="">모든 상담자</option></select>
+      <select name="status" aria-label="상태"><option value="">모든 상태</option><option value="active">상담중</option><option value="closed">종료</option></select>
+      <input name="q" type="search" placeholder="제목·닉네임·기록·후기 검색" aria-label="검색" maxlength="50">
+    </form>
+    <div class="list" id="list"></div>
+  </section>
+</main>
+<script>
+let me;
+const plural = (x) => `상담 ${x.total}건 · 진행 ${x.active} · 종료 ${x.closed}`;
+
+function counselorCard(x) {
+  const on = filt.elements.counselor.value === String(x.id);
+  const body = [el('b', {}, x.nickname), el('div', { class: 'muted' }, plural(x)),
+    el('div', { class: 'muted' }, x.reviews ? [stars(Math.round(x.avg_rating)), ` ${x.avg_rating} · 후기 ${x.reviews}개`] : '아직 후기 없음')];
+  if (me.role !== 'admin') return el('div', { class: 'card' }, body);
+  return el('button', { type: 'button', class: 'card pick', 'aria-pressed': on, onclick: () => {
+    filt.elements.counselor.value = on ? '' : String(x.id); load();
+  } }, body);
+}
+
+function record(r) {
+  const mine = r.counselor_id === me.id || me.role === 'admin';
+  const meta = [r.category, '내담자 ' + r.client_name, '상담자 ' + (r.counselor_name || '알 수 없음'),
+    fmt(r.created_at) + (r.closed_at ? ' ~ ' + fmt(r.closed_at).slice(5) : ''), `메시지 ${r.msg_count}개`].join(' · ');
+  return el('details', { class: 'card rec' },
+    el('summary', {},
+      el('div', { class: 'row' }, el('b', {}, r.title), el('span', { class: 'tags' },
+        r.rating ? stars(r.rating) : null, r.note ? el('span', { class: 'tag' }, '기록 ✓') : null, statusTag(r.status))),
+      el('div', { class: 'muted' }, meta)),
+    el('div', { class: 'rec-body' },
+      el('div', { class: 'block' }, el('h3', {}, '상담 기록'),
+        r.note ? [el('p', { class: 'pre' }, r.note), el('div', { class: 'muted' }, `${fmt(r.note_at)}${r.note_author ? ' · ' + r.note_author : ''}`)]
+          : el('p', { class: 'muted' }, '아직 작성된 기록이 없어요.')),
+      el('div', { class: 'block' }, el('h3', {}, '내담자 후기'),
+        r.rating ? [el('p', {}, stars(r.rating)), r.review ? el('p', { class: 'pre' }, r.review) : null, el('div', { class: 'muted' }, fmt(r.review_at))]
+          : el('p', { class: 'muted' }, r.status === 'closed' ? '아직 후기가 없어요.' : '상담이 끝나면 내담자가 후기를 남길 수 있어요.')),
+      el('div', { class: 'actions' },
+        el('a', { class: 'btn sm', href: '/chat?id=' + r.id }, '대화 보기'),
+        mine ? el('a', { class: 'btn sm primary', href: `/chat?id=${r.id}&note=1` }, r.note ? '기록 수정' : '기록 작성') : null)));
+}
+
+let seq = 0;
+async function load() {
+  const my = ++seq;
+  const qs = new URLSearchParams([...new FormData(filt)].filter(([, v]) => v));
+  const { rows, counselors } = await api('/api/records?' + qs);
+  if (my !== seq) return; // 늦게 도착한 이전 검색 결과는 버린다
+  if (me.role === 'admin') {
+    const cur = filt.elements.counselor.value;
+    fc.replaceChildren(el('option', { value: '' }, '모든 상담자'),
+      ...counselors.map((x) => el('option', { value: x.id, selected: String(x.id) === cur }, x.nickname)));
+  }
+  coun.replaceChildren(...(counselors.length ? counselors.map(counselorCard) : [el('p', { class: 'empty' }, '아직 상담자가 맡은 상담이 없어요.')]));
+  n.textContent = rows.length;
+  list.replaceChildren(...(rows.length ? rows.map(record) : [el('p', { class: 'empty' }, '조건에 맞는 상담 기록이 없어요.')]));
+}
+
+let t;
+filt.oninput = (e) => { clearTimeout(t); t = setTimeout(load, e.target.name === 'q' ? 250 : 0); };
+filt.onsubmit = (e) => { e.preventDefault(); load(); };
+boot(['counselor', 'admin']).then(({ user }) => {
+  me = user;
+  if (me.role === 'admin') { fc.hidden = false; sub.textContent = '모든 상담자가 맡았던 상담과 상담 기록, 내담자 후기를 한곳에서 봐요. 상담자를 누르면 그 상담자의 기록만 보여요.'; }
+  else { cH.textContent = '내 상담 현황'; sub.textContent = '내가 맡았던 상담과 상담 기록, 내담자 후기를 한곳에서 봐요.'; }
+  load();
+});
+</script>
+</body>
+</html>
