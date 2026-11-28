@@ -33,27 +33,66 @@ function avatar(u, size = 28) {
   return img;
 }
 const whoName = (u) => u.nickname + (u.is_anonymous && !u.nickname.startsWith('익명') ? ' (익명)' : '') + '님';
-const whoChip = (u) => el('span', { class: 'who-chip' }, avatar(u, 26), el('span', {}, whoName(u)));
-// 내 정보에서 닉네임·사진을 바꾸면 상단바도 바로 바꾼다
-function refreshWho(u) { document.querySelectorAll('.who-chip').forEach((c) => c.replaceWith(whoChip(u))); }
+const isStaffRole = (u) => u.role === 'counselor' || u.role === 'admin';
+async function logout(e) { e?.preventDefault(); await api('/api/logout', {}); location.href = '/'; }
 
-// 상단바를 그리고 로그인 정보를 돌려준다. need: true(로그인 필요) 또는 역할 배열
-async function boot(need) {
-  const { user, categories } = await api('/api/me');
+// 상단바 프로필 메뉴: 마우스를 올리면 열리고, 터치·키보드는 눌러서 연다
+function meMenu(user) {
+  const item = (href, text) => el('a', { class: 'item', href, role: 'menuitem' }, text);
+  const btn = el('button', { type: 'button', class: 'who-chip', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': `${whoName(user)} 메뉴` },
+    avatar(user, 28), el('span', { class: 'who-name' }, whoName(user)), el('span', { class: 'caret', 'aria-hidden': 'true' }));
+  const pop = el('div', { class: 'me-pop', role: 'menu' },
+    el('div', { class: 'me-head' }, el('b', {}, user.nickname),
+      el('span', {}, user.is_anonymous ? '익명으로 이용 중' : (user.email || ROLE[user.role]))),
+    item('/account', '내 정보'), item('/my', '내 상담'),
+    user.is_anonymous ? item('/signup', '회원가입') : null,
+    el('button', { type: 'button', class: 'item out', role: 'menuitem', onclick: logout }, '로그아웃'));
+  const box = el('div', { class: 'me-menu' }, btn, pop);
+  let byHover = false, timer = 0;
+  const set = (open) => { clearTimeout(timer); box.classList.toggle('open', open); btn.setAttribute('aria-expanded', String(open)); if (!open) byHover = false; };
+  box.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse' && !box.classList.contains('open')) { byHover = true; set(true); } else clearTimeout(timer); });
+  box.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && byHover) timer = setTimeout(() => set(false), 180); });
+  // 마우스로 이미 열린 상태에서 누르면 닫지 않고 고정한다
+  btn.addEventListener('click', () => { if (byHover) { byHover = false; return; } set(!box.classList.contains('open')); });
+  document.addEventListener('click', (e) => { if (box.isConnected && !box.contains(e.target)) set(false); });
+  box.addEventListener('keydown', (e) => {
+    const items = [...pop.querySelectorAll('.item')];
+    if (e.key === 'Escape') { set(false); btn.focus(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); set(true);
+      const i = items.indexOf(document.activeElement);
+      items[e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length : i) - 1]?.focus();
+    }
+  });
+  box.addEventListener('focusout', (e) => { if (!box.contains(e.relatedTarget)) set(false); });
+  return box;
+}
+// 내 정보에서 닉네임·사진을 바꾸면 상단바도 바로 바꾼다
+function refreshWho(u) { document.querySelectorAll('.me-menu').forEach((m) => m.replaceWith(meMenu(u))); }
+
+// 모든 페이지(랜딩 포함)가 같은 상단바를 쓴다
+function topbar(user) {
   const here = location.pathname.replace(/\.html$/, '');
   const link = (href, text) => el('a', { href, 'aria-current': here === href ? 'page' : false }, text);
   const nav = el('nav', { class: 'nav', 'aria-label': '주요 메뉴' });
   if (user) {
-    nav.append(whoChip(user), link('/my', '내 상담'), link('/account', '내 정보'));
-    if (user.role === 'counselor' || user.role === 'admin') nav.append(link('/counselor', '상담자'), link('/records', '상담 기록'));
+    nav.append(link('/my', '내 상담'));
+    if (isStaffRole(user)) nav.append(link('/counselor', '상담자'), link('/records', '상담 기록'));
     if (user.role === 'admin') nav.append(link('/admin', '관리자'));
-    nav.append(el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'));
+    nav.append(link('/guide', '이용방법'));
   } else {
     nav.append(link('/guide', '이용방법'), link('/about', '소개'), link('/login', '로그인'));
   }
-  document.body.prepend(el('header', { class: 'top' }, el('div', { class: 'top-in' },
+  return el('header', { class: 'top' }, el('div', { class: 'top-in' },
     el('a', { class: 'logo', href: '/', 'aria-label': 'Love Design 처음으로' }, 'LD♡', el('small', {}, el('b', {}, 'L'), 'ove ', el('b', {}, 'D'), 'esign')),
-    nav, user ? el('a', { class: 'btn sm primary cta', href: '/new' }, '새 상담') : el('a', { class: 'btn sm primary cta', href: '/signup' }, '회원가입'))));
+    nav, user ? meMenu(user) : null,
+    user ? el('a', { class: 'cta', href: '/new' }, '새 상담') : el('a', { class: 'cta', href: '/signup' }, '회원가입')));
+}
+
+// 상단바를 그리고 로그인 정보를 돌려준다. need: true(로그인 필요) 또는 역할 배열
+async function boot(need) {
+  const { user, categories } = await api('/api/me');
+  document.body.prepend(topbar(user));
   if (!document.querySelector('main.chat')) {
     document.body.append(el('footer', { class: 'foot' }, el('div', { class: 'foot-in' },
       el('nav', { 'aria-label': '사이트 안내' }, el('a', { href: '/guide' }, '이용방법안내'), el('a', { href: '/about' }, '사이트 소개')),
