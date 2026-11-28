@@ -19,7 +19,7 @@ function el(tag, attrs, ...kids) {
 }
 
 const STATUS = { waiting: '대기중', active: '상담중', closed: '종료' };
-const ROLE = { user: '일반', counselor: '상담자', admin: '관리자' };
+const ROLE = { user: '일반', counselor: '상담사', admin: '관리자' };
 const statusTag = (s) => el('span', { class: 'tag ' + s }, STATUS[s]);
 // 별점 표시 (읽기 전용)
 const stars = (n) => el('span', { class: 'rate', 'aria-label': `별점 ${n}점` }, '★'.repeat(n), el('i', {}, '★'.repeat(5 - n)));
