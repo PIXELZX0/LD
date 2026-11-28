@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>비밀번호 찾기 · Love Design</title>
+<meta name="description" content="Love Design 비밀번호 찾기 — 가입한 이메일로 인증번호를 받아 새 비밀번호를 정해요.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#e14b62">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js"></script>
+</head>
+<body>
+<main class="wrap narrow">
+ <div class="panel">
+  <div class="page-head">
+    <h1>비밀번호 찾기</h1>
+    <p class="sub">가입한 이메일로 인증번호를 받아 새 비밀번호를 정해요.</p>
+  </div>
+  <form id="f">
+    <label>이메일
+      <span class="inline">
+        <input name="email" id="email" type="email" required autocomplete="username">
+        <button type="button" class="btn" id="send">인증번호 받기</button>
+      </span>
+    </label>
+    <label>인증번호 <input name="code" id="code" inputmode="numeric" pattern="\d{6}" maxlength="6" required autocomplete="one-time-code" placeholder="메일로 받은 6자리"></label>
+    <p class="muted" id="info"></p>
+    <label>새 비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>새 비밀번호 확인 <input name="confirm" type="password" minlength="8" maxlength="72" required autocomplete="new-password" placeholder="한 번 더 입력"></label>
+    <p class="err" id="err"></p>
+    <button class="btn primary">비밀번호 바꾸고 로그인</button>
+  </form>
+  <p class="muted panel-foot">패스키나 X로도 로그인할 수 있어요. <a href="/login">로그인으로 돌아가기</a></p>
+ </div>
+</main>
+<script>
+boot().then(({ user }) => {
+  if (user && !user.is_anonymous) location.href = '/account'; // 로그인한 회원은 내 정보에서 바꾼다
+});
+const pre = new URLSearchParams(location.search).get('email');
+if (pre) email.value = pre;
+let timer;
+send.onclick = async () => {
+  err.textContent = '';
+  if (!email.reportValidity()) return;
+  send.disabled = true;
+  try {
+    await api('/api/password/reset/code', { email: email.value });
+    info.textContent = `${email.value} 로 인증번호를 보냈어요. 10분 안에 입력해주세요. (스팸함도 확인해주세요)`;
+    code.focus();
+    let left = 60;
+    clearInterval(timer);
+    timer = setInterval(() => {
+      send.textContent = --left > 0 ? `다시 받기 (${left})` : '다시 받기';
+      if (left <= 0) { clearInterval(timer); send.disabled = false; }
+    }, 1000);
+  } catch (x) { err.textContent = x.message; send.disabled = false; }
+};
+f.onsubmit = async (e) => {
+  e.preventDefault();
+  err.textContent = '';
+  const { confirm, ...d } = Object.fromEntries(new FormData(f));
+  if (d.password !== confirm) { err.textContent = '새 비밀번호가 서로 달라요.'; f.confirm.focus(); return; }
+  try {
+    await api('/api/password/reset', d);
+    location.href = '/my';
+  } catch (x) { err.textContent = x.message; }
+};
+</script>
+</body>
+</html>

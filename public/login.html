@@ -42,6 +42,7 @@
     <label>비밀번호 <input name="password" type="password" required autocomplete="current-password"></label>
     <p class="err" id="err"></p>
     <button class="btn primary">로그인</button>
+    <p class="muted forgot"><a href="/reset" id="forgot">비밀번호를 잊으셨나요?</a></p>
   </form>
   <div id="alt" hidden>
     <p class="or"><span>또는</span></p>
@@ -66,6 +67,11 @@ boot().then(({ user, social }) => {
 });
 const pkMsg = (x) => (x.code ? '패스키를 사용할 수 없어요. 비밀번호로 로그인해주세요.' : x.message);
 const done = () => { location.href = nextPath(); };
+// 비밀번호 찾기로 넘어갈 때 입력한 이메일을 들고 간다
+forgot.onclick = (e) => {
+  const v = f.email.value.trim();
+  if (v) { e.preventDefault(); location.href = '/reset?email=' + encodeURIComponent(v); }
+};
 f.onsubmit = async (e) => {
   e.preventDefault();
   try { await api('/api/login', Object.fromEntries(new FormData(f))); done(); }

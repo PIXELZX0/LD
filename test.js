@@ -275,6 +275,23 @@ test('내 정보', async () => {
   assert.equal((await me('/api/me')).body.user?.email, email);
   assert.equal((await again('/api/me')).body.user, null);
   assert.ok((await (await fetch(base + '/account')).text()).includes('내 정보'));
+
+  // 비밀번호 찾기 (로그아웃 상태): 가입한 이메일로 인증번호 → 새 비밀번호 + 바로 로그인, 다른 기기는 로그아웃
+  assert.ok((await (await fetch(base + '/reset')).text()).includes('비밀번호 찾기'));
+  assert.ok((await (await fetch(base + '/login')).text()).includes('href="/reset"'));
+  const lost = client();
+  assert.equal((await lost('/api/password/reset/code', { email: 'nobody-' + rnd() + '@t.io' })).status, 404);
+  assert.equal((await lost('/api/password/reset/code', { email: email.toUpperCase() })).status, 200);
+  assert.match(sent.at(-1).subject, /비밀번호 찾기/);
+  assert.equal((await lost('/api/password/reset/code', { email })).status, 429); // 1분 쿨다운
+  assert.equal((await lost('/api/password/reset', { email, code: '000000', password: 'password5' })).status, 400);
+  assert.equal((await lost('/api/password/reset', { email, code: lastCode(email), password: 'short' })).status, 400);
+  const code = lastCode(email);
+  assert.equal((await lost('/api/password/reset', { email, code, password: 'password5' })).status, 200);
+  assert.equal((await lost('/api/me')).body.user?.email, email);
+  assert.equal((await me('/api/me')).body.user, null);
+  assert.equal((await client()('/api/password/reset', { email, code, password: 'password6' })).status, 400); // 한 번만
+  assert.equal((await client()('/api/login', { email, password: 'password5' })).status, 200);
 });
 
 test('상담 기록·후기', async () => {

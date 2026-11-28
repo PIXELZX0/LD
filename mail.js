@@ -65,11 +65,15 @@ function layout({ preheader, body }) {
 </html>`;
 }
 
-// 인증번호 메일 — 회원가입(signup) / 비밀번호 변경(password)
+// 인증번호 메일 — 회원가입(signup) / 비밀번호 찾기(reset) / 비밀번호 변경(password)
 const CODE_TEXT = {
   signup: {
     title: 'Love Design 회원가입 인증번호', h1: '이메일 인증번호예요', where: '회원가입 화면의 인증번호 칸에',
     ignore: '계정은 만들어지지 않아요.', ignoreLong: '인증번호를 입력하지 않으면 계정은 만들어지지 않아요.',
+  },
+  reset: {
+    title: 'Love Design 비밀번호 찾기 인증번호', h1: '비밀번호 찾기 인증번호예요', where: '비밀번호 찾기 화면의 인증번호 칸에',
+    ignore: '비밀번호는 바뀌지 않아요.', ignoreLong: '인증번호를 입력하지 않으면 비밀번호는 바뀌지 않아요.',
   },
   password: {
     title: 'Love Design 비밀번호 변경 인증번호', h1: '비밀번호 변경 인증번호예요', where: '내 정보 > 비밀번호 변경 창의 인증번호 칸에',
@@ -79,7 +83,7 @@ const CODE_TEXT = {
 mail.verifyCode = (code, kind = 'signup') => {
   const t = CODE_TEXT[kind];
   return {
-    subject: kind === 'signup' ? `[Love Design] 인증번호 ${code}` : `[Love Design] 비밀번호 변경 인증번호 ${code}`,
+    subject: kind === 'signup' ? `[Love Design] 인증번호 ${code}` : `[Love Design] ${t.h1.replace(' 인증번호예요', '')} 인증번호 ${code}`,
     text: `${t.title}는 ${code} 입니다.\n10분 안에 입력해주세요.\n\n본인이 요청하지 않았다면 이 메일을 무시하세요. ${t.ignore}\n\n문의: ${CONTACT}`,
     html: layout({
       preheader: `인증번호 ${code} · 10분 안에 입력해주세요.`,

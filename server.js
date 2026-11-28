@@ -201,6 +201,38 @@ app.post('/api/login', wrap(async (req, res) => {
   res.json({ user: pub(user) });
 }));
 
+// ── 비밀번호 찾기 (로그아웃 상태): 가입한 이메일로 받은 인증번호로 새 비밀번호를 정하고 바로 로그인 ──
+// 가입 화면이 이미 '이미 가입된 이메일'을 알려 주므로, 여기서도 가입 여부를 숨기지 않는다
+app.post('/api/password/reset/code', wrap(async (req, res) => {
+  const email = normEmail(req.body.email);
+  if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
+  if (!mail.enabled) return res.status(503).json({ error: `지금은 인증 메일을 보낼 수 없어요. ${mail.contact} 로 문의해주세요.` });
+  const key = 'reset:' + req.ip;
+  if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
+  const [user] = await q('SELECT banned FROM users WHERE email = ?', [email]);
+  if (!user) return res.status(404).json({ error: '가입되지 않은 이메일이에요. X로 가입했다면 X로 로그인해주세요.' });
+  if (user.banned) return res.status(403).json({ error: '이용이 정지된 계정이에요.' });
+  fail(key);
+  await sendCode(res, email, 'reset');
+}));
+
+app.post('/api/password/reset', wrap(async (req, res) => {
+  const email = normEmail(req.body.email);
+  const password = String(req.body.password || '');
+  if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '새 비밀번호는 8~72자로 해주세요.' });
+  const [row] = await q('SELECT id, banned FROM users WHERE email = ?', [email]);
+  if (!row) return res.status(404).json({ error: '가입되지 않은 이메일이에요.' });
+  if (row.banned) return res.status(403).json({ error: '이용이 정지된 계정이에요.' });
+  const bad = await checkCode(email, String(req.body.code || '').trim());
+  if (bad) return res.status(400).json({ error: bad });
+  await q('DELETE FROM email_codes WHERE email = ?', [email]);
+  // 비밀번호가 새어 나갔을 수 있으니 다른 기기의 로그인은 모두 끊는다
+  await q('UPDATE users SET password_hash = ?, session_ver = session_ver + 1 WHERE id = ?', [await bcrypt.hash(password, 10), row.id]);
+  const user = await getUser(row.id);
+  await login(req, user);
+  res.json({ user: pub(user) });
+}));
+
 app.post('/api/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
 // ── X 로그인·가입·계정 연결 ──

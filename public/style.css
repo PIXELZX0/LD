@@ -85,6 +85,7 @@ h2 { font-size: 1.15rem; letter-spacing: -.01em; margin: 48px 0 14px; display: f
 .panel { border: 1px solid var(--line); border-radius: 20px; padding: 32px; background: #fff; }
 .panel > .page-head { margin-bottom: 24px; }
 .panel-foot { margin: 20px 0 0; text-align: center; }
+.forgot { margin: -4px 0 0; text-align: center; font-size: .88rem; }
 .empty { text-align: center; color: var(--muted); font-size: .92rem; padding: 36px 16px; border: 1px dashed var(--line); border-radius: var(--radius); margin: 0; }
 
 form { display: grid; gap: 16px; }
