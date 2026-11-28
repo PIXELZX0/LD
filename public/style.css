@@ -327,6 +327,7 @@ label.check.all { font-weight: 700; font-size: .95rem; padding: 12px 0; border-b
 .sub-tabs { margin-bottom: 12px; }
 .mail-search { gap: 8px; margin-bottom: 12px; flex-wrap: nowrap; }
 .mail-search input { flex: 1; min-width: 0; margin: 0; }
+.mail-search .btn { width: auto; flex: none; white-space: nowrap; min-height: 48px; }
 .mail-found { margin: 0 0 8px; font-size: .85rem; }
 .mail-list { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: 12px; }
 .mail-row {
@@ -347,6 +348,10 @@ dialog.sheet.wide { width: min(760px, calc(100% - 32px)); }
 .mail-meta { font-size: .85rem; margin: 0; gap: 4px 16px; }
 .mail-meta dd { font-weight: 500; }
 .mail-body { max-height: 46vh; overflow: auto; padding: 16px 18px; background: var(--tint); border-radius: 12px; font-size: .92rem; line-height: 1.65; }
+.mail-body.html { padding: 0; background: #fff; border: 1px solid var(--line); overflow: hidden; max-height: none; }
+.mail-body.html iframe { display: block; width: 100%; height: 56vh; border: 0; }
+.mail-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; font-size: .82rem; }
+.mail-tools:empty { display: none; }
 .mail-att { display: flex; flex-wrap: wrap; gap: 6px; }
 .mail-att:empty { display: none; }
 .mail-act { flex-wrap: nowrap; }

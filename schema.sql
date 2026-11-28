@@ -96,4 +96,19 @@ CREATE TABLE IF NOT EXISTS avatars (
   data MEDIUMBLOB NOT NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) DEFAULT CHARSET=utf8mb4
+) DEFAULT CHARSET=utf8mb4;
+
+-- 문의 메일 원문 저장본: 받은편지함을 주기적으로 확인해 새 메일을 넣어 두고 화면은 여기서 읽는다
+-- 받은 지(received_at) 30일 지난 읽은(seen) 메일은 inbox.js 가 지운다
+-- box 별 UID 는 IMAP 폴더의 UIDVALIDITY 가 바뀌면 다른 메일을 가리키므로 함께 남겨 두고, 바뀌면 그 메일함 캐시를 비운다
+CREATE TABLE IF NOT EXISTS mail_cache (
+  box VARCHAR(10) CHARACTER SET ascii NOT NULL,
+  uid INT UNSIGNED NOT NULL,
+  uidvalidity BIGINT UNSIGNED NOT NULL,
+  source LONGBLOB NOT NULL,
+  seen TINYINT(1) NOT NULL DEFAULT 0,
+  received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (box, uid),
+  INDEX (received_at)
+)

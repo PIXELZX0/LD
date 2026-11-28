@@ -549,8 +549,19 @@ app.post('/api/admin/applications/:id/:decision', admin, wrap(async (req, res) =
   res.json({ ok: true });
 }));
 
+// 검색(닉네임·이메일) + 필터: kind=member|guest(익명), role=user|counselor|admin
 app.get('/api/admin/users', admin, wrap(async (req, res) => {
-  res.json(await q('SELECT id, email, nickname, role, is_anonymous, banned, created_at FROM users ORDER BY id DESC LIMIT 500'));
+  const where = [], args = [];
+  const s = String(req.query.q || '').trim().slice(0, 100);
+  if (s) {
+    const like = '%' + s.replace(/[\\%_]/g, '\\$&') + '%'; // % _ 는 글자 그대로 찾는다
+    where.push('(nickname LIKE ? OR email LIKE ?)'); args.push(like, like);
+  }
+  if (req.query.kind === 'member') where.push('is_anonymous = 0');
+  else if (req.query.kind === 'guest') where.push('is_anonymous = 1');
+  if (['user', 'counselor', 'admin'].includes(req.query.role)) { where.push('role = ?'); args.push(req.query.role); }
+  res.json(await q(`SELECT id, email, nickname, role, is_anonymous, banned, created_at FROM users
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT 500`, args));
 }));
 
 app.post('/api/admin/users/:id', admin, wrap(async (req, res) => {
@@ -597,6 +608,19 @@ app.get('/api/admin/mail/:box', admin, mailbox, mailWrap(async (req, res) => {
 }));
 app.get('/api/admin/mail/:box/:uid', admin, mailbox, mailWrap(async (req, res) => {
   res.json(await inbox.get(req.params.box, Number(req.params.uid)));
+}));
+// HTML 본문: 관리자 화면의 iframe 안에서만 그린다. 스크립트·폼·플러그인은 sandbox 로 막고,
+// 원격 이미지는 관리자가 '이미지 표시'를 눌렀을 때(images=1)만 허용한다 (열람 추적·IP 노출 방지)
+app.get('/api/admin/mail/:box/:uid/html', admin, mailbox, mailWrap(async (req, res) => {
+  const doc = await inbox.html(req.params.box, Number(req.params.uid));
+  const remote = req.query.images === '1' ? ' https: http:' : '';
+  res.type('html').set({
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Cache-Control': 'private, no-store',
+    'Content-Security-Policy': `default-src 'none'; img-src data:${remote}; style-src 'unsafe-inline'${remote}; font-src data:${remote}; `
+      + "form-action 'none'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox",
+  }).send(doc);
 }));
 app.get('/api/admin/mail/:box/:uid/att/:i', admin, mailbox, mailWrap(async (req, res) => {
   const a = await inbox.attachment(req.params.box, Number(req.params.uid), Number(req.params.i) || 0);
@@ -676,6 +700,7 @@ if (require.main === module) {
   init().then(() => {
     const port = Number(process.env.PORT || 3000);
     server.listen(port, () => console.log(`Love Design on :${port}`));
+    inbox.start(); // 문의 메일함: 받은편지함 주기 확인·저장, 30일 지난 읽은 메일 저장본 정리
   }).catch((e) => { console.error(e); process.exit(1); });
 }
 

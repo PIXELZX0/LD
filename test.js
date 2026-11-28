@@ -119,6 +119,14 @@ test('전체 흐름', async () => {
   assert.equal((await adm('/api/admin/mail')).body.enabled, false);
   assert.equal((await adm('/api/admin/mail/inbox')).status, 503);
   assert.equal((await adm('/api/admin/mail/send', { to: 'a@b.co', subject: 's', body: 'b' })).status, 503);
+  // 회원 검색·필터
+  const found = (await adm('/api/admin/users?q=' + encodeURIComponent(email))).body;
+  assert.equal(found.length, 1); assert.equal(found[0].email, email);
+  assert.ok((await adm('/api/admin/users?role=admin')).body.every((x) => x.role === 'admin'));
+  assert.ok((await adm('/api/admin/users?kind=guest')).body.every((x) => x.is_anonymous));
+  assert.ok((await adm('/api/admin/users?kind=member&role=user')).body.every((x) => !x.is_anonymous && x.role === 'user'));
+  assert.equal((await adm('/api/admin/users?q=%25%25%25' + Date.now())).body.length, 0); // % 는 와일드카드가 아니다
+  assert.equal((await coun('/api/admin/users')).status, 403);
   const mine = apps.find((x) => x.nickname === '상담이' && x.status === 'pending');
   assert.equal((await adm(`/api/admin/applications/${mine.id}/approve`, {})).status, 200);
   assert.equal((await coun('/api/me')).body.user.role, 'counselor');

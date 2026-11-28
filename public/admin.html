@@ -30,6 +30,7 @@
   <form id="replyF">
     <div class="row"><h2 id="readH"></h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
     <dl class="info mail-meta" id="readMeta"></dl>
+    <div class="mail-tools" id="readTools"></div>
     <div class="mail-body pre" id="readBody"></div>
     <div class="mail-att" id="readAtt"></div>
     <div id="replyBox">
@@ -63,6 +64,12 @@ const table = (head, rows) => {
   ? el('div', { class: 'table-wrap stack' }, el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))), el('tbody', {}, rows)))
   : el('p', { class: 'empty' }, '아직 항목이 없어요.');
 };
+const userState = { kind: '', role: '', q: '' };
+const userTable = (rows) => table(['닉네임', '이메일', '역할', '상태'], rows.map((x) => el('tr', {},
+  el('td', {}, x.nickname), el('td', {}, x.is_anonymous ? '(익명)' : x.email),
+  el('td', {}, x.id === me.id ? ROLE[x.role] : el('select', { onchange: (e) => act(() => api('/api/admin/users/' + x.id, { role: e.target.value }))() },
+    Object.entries(ROLE).map(([k, v]) => el('option', { value: k, selected: k === x.role }, v)))),
+  el('td', { class: 'nowrap' }, x.id === me.id ? null : el('button', { class: 'btn sm', onclick: act(() => api('/api/admin/users/' + x.id, { banned: !x.banned })) }, x.banned ? '정지 해제' : '정지')))));
 const views = {
   async apps() {
     const rows = await api('/api/admin/applications');
@@ -75,12 +82,31 @@ const views = {
         el('button', { class: 'btn sm', onclick: act(() => api(`/api/admin/applications/${a.id}/reject`, {})) }, '거절')] : null))));
   },
   async users() {
-    const rows = await api('/api/admin/users');
-    return table(['닉네임', '이메일', '역할', '상태'], rows.map((x) => el('tr', {},
-      el('td', {}, x.nickname), el('td', {}, x.is_anonymous ? '(익명)' : x.email),
-      el('td', {}, x.id === me.id ? ROLE[x.role] : el('select', { onchange: (e) => act(() => api('/api/admin/users/' + x.id, { role: e.target.value }))() },
-        Object.entries(ROLE).map(([k, v]) => el('option', { value: k, selected: k === x.role }, v)))),
-      el('td', { class: 'nowrap' }, x.id === me.id ? null : el('button', { class: 'btn sm', onclick: act(() => api('/api/admin/users/' + x.id, { banned: !x.banned })) }, x.banned ? '정지 해제' : '정지')))));
+    // 검색어·필터는 탭을 다시 그려도(역할 변경·정지 후) 남아 있게 밖에 둔다
+    const f = el('form', { class: 'filters', role: 'search', onsubmit: (e) => { e.preventDefault(); load(); } },
+      el('select', { name: 'kind', 'aria-label': '회원 구분' }, [['', '회원·비회원 전체'], ['member', '회원'], ['guest', '비회원 (익명)']]
+        .map(([v, t]) => el('option', { value: v, selected: v === userState.kind }, t))),
+      el('select', { name: 'role', 'aria-label': '역할' }, el('option', { value: '' }, '모든 역할'),
+        Object.entries(ROLE).map(([k, v]) => el('option', { value: k, selected: k === userState.role }, v))),
+      el('input', { type: 'search', name: 'q', maxlength: '100', placeholder: '닉네임·이메일 검색', 'aria-label': '회원 검색', value: userState.q }));
+    const found = el('p', { class: 'muted mail-found' });
+    const box = el('div', {});
+    let seq = 0, t;
+    const load = async () => {
+      const my = ++seq;
+      Object.assign(userState, Object.fromEntries(new FormData(f)));
+      const qs = new URLSearchParams(Object.entries(userState).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v));
+      try {
+        const rows = await api('/api/admin/users?' + qs);
+        if (my !== seq) return; // 늦게 온 이전 검색 결과는 버린다
+        const filtered = qs.toString() !== '';
+        found.textContent = `${filtered ? '조건에 맞는 ' : ''}회원 ${rows.length}명` + (rows.length >= 500 ? ' (최근 500명까지 보여줘요. 검색으로 좁혀주세요)' : '');
+        box.replaceChildren(rows.length || !filtered ? userTable(rows) : el('p', { class: 'empty' }, '조건에 맞는 회원이 없어요.'));
+      } catch (x) { if (my === seq) box.replaceChildren(el('p', { class: 'err' }, x.message)); }
+    };
+    f.oninput = (e) => { clearTimeout(t); t = setTimeout(load, e.target.name === 'q' ? 250 : 0); };
+    await load();
+    return el('div', {}, f, found, box);
   },
   async cons() {
     const rows = await api('/api/admin/consultations');
@@ -167,7 +193,8 @@ views.mail = async function () {
 async function openMail(uid) {
   const box = mailState.box;
   readErr.textContent = ''; replyF.reset();
-  readH.textContent = '불러오는 중…'; readMeta.replaceChildren(); readBody.textContent = ''; readAtt.replaceChildren();
+  readH.textContent = '불러오는 중…'; readMeta.replaceChildren(); readTools.replaceChildren(); readAtt.replaceChildren();
+  readBody.className = 'mail-body pre'; readBody.textContent = '';
   replyBox.hidden = replyBtn.hidden = box !== 'inbox';
   delBtn.textContent = box === 'trash' ? '완전히 삭제' : '휴지통으로';
   readDlg.showModal();
@@ -178,12 +205,32 @@ async function openMail(uid) {
     const row = (k, v) => (v ? [el('dt', {}, k), el('dd', {}, v)] : []);
     readMeta.replaceChildren(...row('보낸 사람', who(m.from)), ...row('받는 사람', m.to.map(who).join(', ')),
       ...row('참조', m.cc.map(who).join(', ')), ...row('날짜', m.date ? new Date(m.date).toLocaleString('ko-KR') : ''));
-    readBody.textContent = m.text || '(본문 없음)';
+    drawBody(box, uid, m);
     readAtt.replaceChildren(...m.attachments.map((a) => el('a', { class: 'btn sm', href: `/api/admin/mail/${box}/${uid}/att/${a.i}`, download: a.filename }, `📎 ${a.filename} · ${kb(a.size)}`)));
-    replyTo.textContent = '→ ' + who(m.replyTo || m.from) + (m.answered ? ' · 이미 답장했어요' : '');
     const it = mailState.items.find((x) => x.uid === uid);
+    replyTo.textContent = '→ ' + who(m.replyTo || m.from) + ((m.answered ?? it?.answered) ? ' · 이미 답장했어요' : '');
     if (box === 'inbox' && it && !it.seen) { it.seen = true; mailState.render?.(); setUnseen(Math.max(0, Number(unseen.textContent) - 1)); }
   } catch (x) { readH.textContent = '메일'; readErr.textContent = x.message; replyBox.hidden = replyBtn.hidden = true; }
+}
+// HTML 메일은 격리된 iframe(sandbox, 스크립트 없음)으로 그린다. 원격 이미지는 누를 때만 불러온다
+function drawBody(box, uid, m, mode = m.html ? 'html' : 'text', images = false) {
+  const redraw = (md, img) => () => drawBody(box, uid, m, md, img);
+  if (mode === 'html') {
+    readBody.className = 'mail-body html';
+    readBody.replaceChildren(el('iframe', {
+      src: `/api/admin/mail/${box}/${uid}/html${images ? '?images=1' : ''}`, title: '메일 본문',
+      sandbox: 'allow-popups allow-popups-to-escape-sandbox', referrerpolicy: 'no-referrer',
+    }));
+  } else {
+    readBody.className = 'mail-body pre';
+    readBody.textContent = m.text || '(본문 없음)';
+  }
+  const blocked = mode === 'html' && m.remote && !images;
+  readTools.replaceChildren(...(m.html ? [
+    blocked ? el('span', { class: 'muted' }, '외부 이미지를 막아뒀어요.') : null,
+    blocked ? el('button', { type: 'button', class: 'btn sm', onclick: redraw('html', true) }, '이미지 표시') : null,
+    el('button', { type: 'button', class: 'btn sm', onclick: redraw(mode === 'html' ? 'text' : 'html', images) }, mode === 'html' ? '텍스트로 보기' : 'HTML로 보기'),
+  ].filter(Boolean) : []));
 }
 replyF.onsubmit = async (e) => {
   e.preventDefault();
