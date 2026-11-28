@@ -112,7 +112,7 @@
   /* 상단바는 다른 페이지와 같은 top.css — 여기선 가운데 정렬된 첫 화면 위에 띄워 둔다 */
   body > .top { position: fixed; top: 0; left: 0; right: 0; }
   /* 로그인 상태를 확인하는 동안에는 로그아웃 상태 버튼이 잠깐 비치지 않게 숨긴다 */
-  .auth-wait .menu, .auth-wait .hint { visibility: hidden; }
+  .auth-wait .top .nav, .auth-wait .top .cta, .auth-wait .menu, .auth-wait .hint { visibility: hidden; }
   .hint b { color: var(--ink); font-weight: 600; }
   .linkish { font: inherit; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rose-soft); }
   .linkish:hover { color: var(--rose); text-decoration-color: var(--rose); }
@@ -171,6 +171,13 @@
 </head>
 <body>
 
+  <!-- 로그아웃 상태의 상단바 (app.js topbar(null) 과 같은 모양). 로그인돼 있으면 스크립트가 바꿔 끼운다 -->
+  <header class="top"><div class="top-in">
+    <a class="logo" href="/" aria-label="Love Design 처음으로">LD♡<small><b>L</b>ove <b>D</b>esign</small></a>
+    <nav class="nav" aria-label="주요 메뉴"><a href="/guide">이용방법</a><a href="/about">소개</a><a href="/login">로그인</a></nav>
+    <a class="cta" href="/signup">회원가입</a>
+  </div></header>
+
   <div class="glow" aria-hidden="true"></div>
   <main>
     <div class="stage"><h1 class="ld">LD<span class="heart" aria-hidden="true">♡</span></h1></div>
@@ -200,8 +207,8 @@ document.getElementById('anon').addEventListener('click', async function () {
   setTimeout(done, 1500); // 응답이 늦어도 화면은 보여준다
   api('/api/me').then(function (r) {
     var user = r.user;
-    document.body.prepend(topbar(user));
     if (!user) return;
+    document.querySelector('body > .top').replaceWith(topbar(user));
     var staff = isStaffRole(user);
     document.getElementById('menu').replaceChildren(
       staff ? el('a', { class: 'btn primary', href: '/counselor' }, '상담 대기열 보기') : el('a', { class: 'btn primary', href: '/new' }, '새 상담 시작하기'),
@@ -209,7 +216,7 @@ document.getElementById('anon').addEventListener('click', async function () {
     document.getElementById('hint').replaceChildren(...(user.is_anonymous
       ? [el('b', {}, user.nickname), '(으)로 익명 이용 중이에요 · ', el('a', { href: '/signup' }, '회원가입'), '하면 어디서든 기록을 볼 수 있어요']
       : [el('b', {}, user.nickname), '님으로 로그인돼 있어요 · ', el('button', { type: 'button', class: 'linkish', onclick: logout }, '로그아웃')]));
-  }).catch(function () { document.body.prepend(topbar(null)); }).finally(done);
+  }).catch(function () {}).finally(done);
 })();
 </script>
 
