@@ -1,3 +1,28 @@
+// 화면 테마: 고른 게 없으면 기기 설정을 따른다(top.css 의 prefers-color-scheme).
+// app.js 는 모든 페이지 <head> 에서 바로 읽히므로 그리기 전에 붙어 깜빡이지 않는다.
+const THEMES = ['system', 'light', 'dark'];
+function getTheme() {
+  try { const t = localStorage.getItem('theme'); return THEMES.includes(t) ? t : 'system'; } catch { return 'system'; }
+}
+function applyTheme(t) {
+  const root = document.documentElement;
+  if (t === 'light' || t === 'dark') root.dataset.theme = t; else delete root.dataset.theme;
+  document.querySelectorAll('.theme-pick button').forEach((b) => b.setAttribute('aria-pressed', String(b.value === t)));
+}
+function setTheme(t) {
+  try { if (t === 'system') localStorage.removeItem('theme'); else localStorage.setItem('theme', t); } catch {}
+  applyTheme(t);
+}
+applyTheme(getTheme());
+// 다른 탭에서 바꾸면 이 탭도 따라간다
+window.addEventListener('storage', (e) => { if (e.key === 'theme' || e.key === null) applyTheme(getTheme()); });
+// 바닥글의 시스템 · 라이트 · 다크 고르기
+function themePicker() {
+  const cur = getTheme();
+  const b = (v, text) => el('button', { type: 'button', value: v, 'aria-pressed': String(cur === v), onclick: () => setTheme(v) }, text);
+  return el('div', { class: 'theme-pick', role: 'group', 'aria-label': '화면 테마' }, b('system', '시스템'), b('light', '라이트'), b('dark', '다크'));
+}
+
 // 공통 헬퍼
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : {
@@ -100,7 +125,7 @@ async function boot(need) {
         el('a', { href: '/terms' }, '이용약관'), el('a', { href: '/privacy' }, el('b', {}, '개인정보처리방침')),
         el('a', { href: 'mailto:contact@yourloveour.design' }, '문의 contact@yourloveour.design')),
       el('span', { class: 'help' }, '위급할 땐 ', el('b', {}, '109'), ' 자살예방상담 · ', el('b', {}, '1388'), ' 청소년상담 · ', el('b', {}, '1577-0199'), ' 정신건강위기상담 · ', el('b', {}, '112·119')),
-      el('span', {}, '© Love Design'))));
+      themePicker(), el('span', {}, '© Love Design'))));
   }
   if (need && !user) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('login'); }
   if (Array.isArray(need) && !need.includes(user.role)) { document.querySelector('main').replaceChildren(el('p', {}, '권한이 없어요.')); throw new Error('role'); }

@@ -38,15 +38,7 @@
 <script src="/app.js"></script>
 <link rel="stylesheet" href="/top.css">
 <style>
-  :root {
-    color-scheme: light;
-    --bg: #ffffff;
-    --ink: #161616;
-    --muted: #7a7470;
-    --soft: #b9b2ad;
-    --rose: #e14b62;
-    --rose-soft: #f6d6db;
-  }
+  /* 색(라이트·다크)은 top.css 에 있다 */
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
@@ -118,15 +110,15 @@
   .btn {
     display: block; padding: 13px 10px;
     border: 1px solid var(--rose-soft); border-radius: 999px;
-    background: #fff; color: var(--ink);
+    background: var(--surface); color: var(--ink);
     font: inherit; font-size: .9rem; font-weight: 500;
     text-decoration: none; cursor: pointer; word-break: keep-all;
     transition: border-color .2s, background .2s, transform .15s;
   }
   .btn:hover { border-color: var(--rose); }
   .btn:active { transform: scale(.97); }
-  .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
-  .btn.primary:hover { background: var(--rose); border-color: var(--rose); }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+  .btn.primary:hover { background: var(--rose); border-color: var(--rose); color: #fff; }
   .btn:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
   .hint { margin: 18px 0 0; font-size: .84rem; color: var(--muted); }
   .hint a { color: var(--ink); text-underline-offset: 3px; text-decoration-color: var(--rose-soft); }
@@ -158,7 +150,8 @@
   footer .sns a:active { transform: scale(.92); }
   footer .sns a:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; border-radius: 6px; }
   footer .sns svg { width: 18px; height: 18px; display: block; }
-  body { padding-bottom: 140px; } /* 고정된 바닥글(SNS 줄 포함)에 내용이 가리지 않게 */
+  footer .theme-pick { display: flex; width: max-content; margin: 0 auto 12px; }
+  body { padding-bottom: 180px; } /* 고정된 바닥글(SNS 줄 포함)에 내용이 가리지 않게 */
 
   @media (prefers-reduced-motion: no-preference) {
     main { animation: rise 1s cubic-bezier(.2,.7,.2,1) both; }
@@ -230,9 +223,11 @@
       <a href="https://x.com/love_our_design" target="_blank" rel="noopener" aria-label="Love Design X(트위터)" title="X(트위터) @love_our_design"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
       <a href="https://www.instagram.com/love_our_design/" target="_blank" rel="noopener" aria-label="Love Design 인스타그램" title="인스타그램 @love_our_design"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".6" fill="currentColor"/></svg></a>
     </div>
+    <div id="theme"></div>
     <a href="/counsel">고민 상담 안내</a> · <a href="/terms">이용약관</a> · <a href="/privacy"><b>개인정보처리방침</b></a> · <a href="mailto:contact@yourloveour.design">문의 contact@yourloveour.design</a></footer>
 
 <script>
+document.getElementById('theme').replaceWith(themePicker());
 document.getElementById('anon').addEventListener('click', async function () {
   this.disabled = true;
   var r = await fetch('/api/anon', { method: 'POST' });
