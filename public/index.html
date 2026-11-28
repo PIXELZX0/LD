@@ -26,7 +26,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@graph":[
  {"@type":"WebSite","@id":"https://yourloveour.design/#website","url":"https://yourloveour.design/","name":"Love Design","alternateName":["LD","Love Design","LD Love Design","러브디자인","러브 디자인","Your Love Our Design","yourloveourdesign"],"description":"Your Love Our Design, Love Design(LD)은 청소년 고민 상담부터 연애·인간관계·진로·가족 고민, 우울하고 힘든 마음까지 가입 없이 익명으로 승인된 상담자와 1:1 실시간 채팅으로 나누는 무료 고민상담 서비스예요.","inLanguage":"ko-KR","publisher":{"@id":"https://yourloveour.design/#org"}},
- {"@type":"Organization","@id":"https://yourloveour.design/#org","name":"Love Design","alternateName":["LD","Your Love Our Design","yourloveourdesign","러브디자인"],"url":"https://yourloveour.design/","logo":"https://yourloveour.design/apple-touch-icon.png","email":"contact@yourloveour.design","slogan":"Your Love Our Design — 당신에게 맞는 사랑을 조각해드립니다"}
+ {"@type":"Organization","@id":"https://yourloveour.design/#org","name":"Love Design","alternateName":["LD","Your Love Our Design","yourloveourdesign","러브디자인"],"url":"https://yourloveour.design/","logo":"https://yourloveour.design/apple-touch-icon.png","email":"contact@yourloveour.design","sameAs":["https://x.com/love_our_design","https://www.instagram.com/love_our_design/"],"slogan":"Your Love Our Design — 당신에게 맞는 사랑을 조각해드립니다"}
 ]}
 </script>
 <meta name="theme-color" content="#e14b62">
@@ -152,6 +152,13 @@
   }
   footer a { color: inherit; text-decoration: none; letter-spacing: .04em; }
   footer a:hover { color: var(--rose); }
+  footer .sns { display: flex; justify-content: center; gap: 18px; margin-bottom: 12px; }
+  footer .sns a { display: inline-flex; padding: 4px; color: var(--muted); transition: color .2s, transform .15s; }
+  footer .sns a:hover { color: var(--rose); }
+  footer .sns a:active { transform: scale(.92); }
+  footer .sns a:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; border-radius: 6px; }
+  footer .sns svg { width: 18px; height: 18px; display: block; }
+  body { padding-bottom: 140px; } /* 고정된 바닥글(SNS 줄 포함)에 내용이 가리지 않게 */
 
   @media (prefers-reduced-motion: no-preference) {
     main { animation: rise 1s cubic-bezier(.2,.7,.2,1) both; }
@@ -218,7 +225,12 @@
     </nav>
     <p class="hint" id="hint">처음이라면 <a href="/guide">이용방법</a>부터 살펴보세요</p>
   </main>
-  <footer><a href="/counsel">고민 상담 안내</a> · <a href="/terms">이용약관</a> · <a href="/privacy"><b>개인정보처리방침</b></a> · <a href="mailto:contact@yourloveour.design">문의 contact@yourloveour.design</a></footer>
+  <footer>
+    <div class="sns">
+      <a href="https://x.com/love_our_design" target="_blank" rel="noopener" aria-label="Love Design X(트위터)" title="X(트위터) @love_our_design"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+      <a href="https://www.instagram.com/love_our_design/" target="_blank" rel="noopener" aria-label="Love Design 인스타그램" title="인스타그램 @love_our_design"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".6" fill="currentColor"/></svg></a>
+    </div>
+    <a href="/counsel">고민 상담 안내</a> · <a href="/terms">이용약관</a> · <a href="/privacy"><b>개인정보처리방침</b></a> · <a href="mailto:contact@yourloveour.design">문의 contact@yourloveour.design</a></footer>
 
 <script>
 document.getElementById('anon').addEventListener('click', async function () {
