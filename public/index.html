@@ -228,6 +228,7 @@
 
 <script>
 document.getElementById('theme').replaceWith(themePicker());
+document.querySelector('body > .top .cta').before(themeButton()); // 로그아웃 상태 상단바에도 테마 버튼
 document.getElementById('anon').addEventListener('click', async function () {
   this.disabled = true;
   var r = await fetch('/api/anon', { method: 'POST' });

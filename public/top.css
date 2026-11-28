@@ -68,6 +68,16 @@
 .top .cta:hover { background: var(--rose); border-color: var(--rose); color: #fff; }
 .top .cta:active { transform: scale(.97); }
 .top .cta:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+/* 화면 테마 버튼 (시스템 → 라이트 → 다크) */
+.theme-btn {
+  display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--muted);
+  cursor: pointer; transition: color .2s, border-color .2s, transform .15s;
+}
+.theme-btn:hover { color: var(--ink); border-color: var(--rose-soft); }
+.theme-btn:active { transform: scale(.94); }
+.theme-btn:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+.theme-btn svg { display: block; }
 
 @media (max-width: 720px) {
   .top { --gutter: 14px; }
@@ -77,8 +87,8 @@
   .nav::-webkit-scrollbar { display: none; }
   .nav { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
   .nav > :last-child { margin-right: 24px; }
-  .me-menu, .cta { margin-left: auto; }
-  .me-menu + .cta { margin-left: 0; }
+  .theme-btn { margin-left: auto; }
+  .theme-btn + .me-menu, .theme-btn + .cta, .me-menu + .cta { margin-left: 0; }
 }
 
 .avatar {

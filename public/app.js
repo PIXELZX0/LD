@@ -8,6 +8,7 @@ function applyTheme(t) {
   const root = document.documentElement;
   if (t === 'light' || t === 'dark') root.dataset.theme = t; else delete root.dataset.theme;
   document.querySelectorAll('.theme-pick button').forEach((b) => b.setAttribute('aria-pressed', String(b.value === t)));
+  document.querySelectorAll('.theme-btn').forEach((b) => paintThemeButton(b, t));
 }
 function setTheme(t) {
   try { if (t === 'system') localStorage.removeItem('theme'); else localStorage.setItem('theme', t); } catch {}
@@ -21,6 +22,25 @@ function themePicker() {
   const cur = getTheme();
   const b = (v, text) => el('button', { type: 'button', value: v, 'aria-pressed': String(cur === v), onclick: () => setTheme(v) }, text);
   return el('div', { class: 'theme-pick', role: 'group', 'aria-label': '화면 테마' }, b('system', '시스템'), b('light', '라이트'), b('dark', '다크'));
+}
+// 상단바 테마 버튼: 누를 때마다 시스템 → 라이트 → 다크, 아이콘이 지금 테마를 보여준다
+const THEME_NAME = { system: '시스템', light: '라이트', dark: '다크' };
+const svgIcon = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const THEME_ICON = { // 고정된 아이콘 문자열만 innerHTML 로 넣는다
+  system: svgIcon('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'),
+  light: svgIcon('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  dark: svgIcon('<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>'),
+};
+const nextTheme = (t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
+function paintThemeButton(b, t) {
+  b.innerHTML = THEME_ICON[t];
+  const label = `화면 테마: ${THEME_NAME[t]} (누르면 ${THEME_NAME[nextTheme(t)]})`;
+  b.setAttribute('aria-label', label); b.title = label;
+}
+function themeButton() {
+  const b = el('button', { type: 'button', class: 'theme-btn', onclick: () => setTheme(nextTheme(getTheme())) });
+  paintThemeButton(b, getTheme());
+  return b;
 }
 
 // 공통 헬퍼
@@ -110,7 +130,7 @@ function topbar(user) {
   }
   return el('header', { class: 'top' }, el('div', { class: 'top-in' },
     el('a', { class: 'logo', href: '/', 'aria-label': 'Love Design 처음으로' }, 'LD♡', el('small', {}, el('b', {}, 'L'), 'ove ', el('b', {}, 'D'), 'esign')),
-    nav, user ? meMenu(user) : null,
+    nav, themeButton(), user ? meMenu(user) : null,
     user ? el('a', { class: 'cta', href: '/new' }, '새 상담') : el('a', { class: 'cta', href: '/signup' }, '회원가입')));
 }
 
