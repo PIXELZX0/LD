@@ -373,3 +373,11 @@ dialog.sheet.wide { width: min(760px, calc(100% - 32px)); }
 .faq details { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; }
 .faq summary { cursor: pointer; font-weight: 600; }
 .faq details p { margin: 10px 0 0; color: var(--muted); font-size: .95rem; }
+
+/* 상담 시작 전 이용 안내 (/new) */
+.rules { margin: 0; padding: 0; list-style: none; counter-reset: rule; display: grid; gap: 10px; }
+.rules > li { counter-increment: rule; position: relative; padding: 14px 16px 14px 52px; background: var(--tint); border-radius: 12px; display: grid; gap: 2px; }
+.rules > li::before { content: counter(rule); position: absolute; left: 16px; top: 14px; width: 24px; height: 24px; border-radius: 50%; background: var(--rose); color: #fff; font-size: .8rem; font-weight: 700; display: grid; place-content: center; }
+.rules > li > span { color: var(--muted); font-size: .9rem; }
+.rule-act .btn { flex: 1; }
+.rule-act .btn.primary { flex: 2; }
