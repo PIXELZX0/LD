@@ -569,3 +569,73 @@ test('X 로그인·가입·연결', async () => {
   assert.equal(await viaX(client(), xa), '/login?xerr=banned');
   for (const page of ['/login', '/signup', '/account']) assert.ok((await (await fetch(base + page)).text()).includes('<script src="/app.js">'), page);
 });
+
+test('익명 상담', async () => {
+  const adm = client();
+  await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
+  const signup = async (nickname) => {
+    const call = client(), email = rnd() + '@t.io';
+    await call('/api/email/code', { email });
+    assert.equal((await call('/api/signup', { email, password: 'password1', nickname, code: lastCode(email), agree: true })).status, 200);
+    return call;
+  };
+  const co = await signup('가림상담');
+  await co('/api/apply', { intro: '열 글자 넘는 자기소개입니다' });
+  const app = (await adm('/api/admin/applications')).body.find((x) => x.nickname === '가림상담' && x.status === 'pending');
+  await adm(`/api/admin/applications/${app.id}/approve`, {});
+  const nick = '숨은회원' + rnd();
+  const me = await signup(nick);
+  const meId = (await me('/api/me')).body.user.id;
+  const raw = (call, path, body, type) => fetch(base + path, {
+    method: body === undefined ? 'GET' : 'POST', headers: { cookie: call.cookie(), ...(type && { 'Content-Type': type }) }, body,
+  });
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), crypto.randomBytes(64)]);
+  const pic = (await (await raw(me, '/api/account/avatar', jpg, 'image/jpeg')).json()).user.avatar;
+
+  const cid = (await me('/api/consultations', { category: '연애', title: '익명 고민', body: '아무도 모르게', anonymous: true })).body.id;
+  // 대기열: 상담사에겐 '익명', 회원 번호도 없다
+  const w = (await co('/api/consultations/waiting')).body.find((x) => x.id === cid);
+  assert.equal(w.client_name, '익명'); assert.equal(w.client_id, null); assert.ok(w.anonymous);
+  assert.equal((await raw(co, pic)).status, 404); // 대기 중 상담으로도 사진을 볼 수 없다
+  assert.equal((await co(`/api/consultations/${cid}/accept`, {})).status, 200);
+  assert.equal((await raw(co, pic)).status, 404); // 맡은 뒤에도
+
+  let d = (await co(`/api/consultations/${cid}`)).body;
+  assert.equal(d.consultation.client_name, '익명'); assert.equal(d.consultation.client_id, null);
+  assert.deepEqual([d.messages[0].nickname, d.messages[0].sender_id, d.messages[0].avatar], ['익명', 0, null]);
+  assert.ok(!JSON.stringify(d).includes(nick) && !JSON.stringify(d).includes(`"client_id":${meId}`));
+  assert.equal((await co('/api/consultations/mine')).body.find((x) => x.id === cid).client_name, '익명');
+  // 상담 기록: 이름 가림 + 닉네임으로 검색해도 안 나온다
+  const rec = (await co('/api/records')).body.rows.find((x) => x.id === cid);
+  assert.equal(rec.client_name, '익명'); assert.equal(rec.client_id, null);
+  assert.equal((await co('/api/records?q=' + encodeURIComponent(nick))).body.rows.length, 0);
+
+  // 내담자 본인·관리자는 그대로 본다
+  d = (await me(`/api/consultations/${cid}`)).body;
+  assert.equal(d.consultation.client_name, nick); assert.equal(d.messages[0].sender_id, meId);
+  d = (await adm(`/api/consultations/${cid}`)).body;
+  assert.equal(d.consultation.client_name, nick); assert.equal(d.messages[0].nickname, nick); assert.equal(d.messages[0].avatar, pic);
+  assert.ok((await adm('/api/admin/consultations')).body.find((x) => x.id === cid).anonymous);
+  assert.ok((await adm('/api/records?q=' + encodeURIComponent(nick))).body.rows.some((x) => x.id === cid));
+
+  // 실시간: 상담사 소켓엔 가린 메시지, 관리자 소켓엔 원래 메시지
+  const sock = (call) => new Promise((resolve) => {
+    const s = ioc(base, { extraHeaders: { cookie: call.cookie() }, transports: ['websocket'] });
+    s.on('connect', () => s.emit('join', cid, () => resolve(s)));
+  });
+  const [sc, sa, sm] = await Promise.all([sock(co), sock(adm), sock(me)]);
+  const next = (s) => new Promise((r) => s.once('msg', r));
+  const got = Promise.all([next(sc), next(sa)]);
+  assert.ok((await new Promise((r) => sm.emit('send', { id: cid, body: '실시간 익명' }, r))).ok);
+  const [mc, ma] = await got;
+  assert.deepEqual([mc.nickname, mc.sender_id, mc.avatar], ['익명', 0, null]);
+  assert.deepEqual([ma.nickname, ma.sender_id, ma.avatar], [nick, meId, pic]);
+  [sc, sa, sm].forEach((s) => s.close());
+
+  // 익명으로 고르지 않으면 평소처럼 보이고, 가입 없이 쓰는 익명 이용자는 표시하지 않는다
+  const plain = (await me('/api/consultations', { category: '연애', title: '공개 고민', body: '보여도 돼요' })).body.id;
+  assert.equal((await co('/api/consultations/waiting')).body.find((x) => x.id === plain).client_name, nick);
+  const guest = client(); await guest('/api/anon', {});
+  const gid = (await guest('/api/consultations', { category: '연애', title: '손님', body: '안녕', anonymous: true })).body.id;
+  assert.ok(!(await adm(`/api/consultations/${gid}`)).body.consultation.anonymous);
+});

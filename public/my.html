@@ -50,6 +50,7 @@ boot(true).then(async ({ user }) => {
   const rows = await api('/api/consultations/mine');
   list.replaceChildren(...(rows.length ? rows.map((c) => el('a', { class: 'card', href: '/chat?id=' + c.id },
     el('div', { class: 'row' }, el('b', {}, c.title), el('span', { class: 'tags' },
+      c.anonymous && c.client_id === user.id ? el('span', { class: 'tag' }, '익명') : null,
       c.client_id === user.id && c.status === 'closed' && c.counselor_id
         ? (c.rating ? stars(c.rating) : el('span', { class: 'tag ask' }, '후기 남기기')) : null,
       statusTag(c.status))),

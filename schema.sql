@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS consultations (
   counselor_id INT NULL,
   category VARCHAR(30) NOT NULL,
   title VARCHAR(120) NOT NULL,
+  anonymous TINYINT(1) NOT NULL DEFAULT 0, -- 회원이 익명으로 요청: 상담사에게 내담자가 누군지 숨긴다 (관리자는 보임)
   status ENUM('waiting','active','closed') NOT NULL DEFAULT 'waiting',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   closed_at DATETIME NULL,

@@ -19,6 +19,7 @@ async function init() {
   await addColumn('users', 'avatar', 'CHAR(16) NULL');
   await addColumn('users', 'terms_ver', 'VARCHAR(10) NULL'); // 동의한 약관 판(시행일)
   await addColumn('users', 'agreed_at', 'DATETIME NULL');
+  await addColumn('consultations', 'anonymous', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER title');
   await addColumn('mail_cache', 'seen', 'TINYINT(1) NOT NULL DEFAULT 0');
   await addColumn('mail_cache', 'received_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
 

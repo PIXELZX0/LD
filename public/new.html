@@ -36,6 +36,7 @@
     <label>분야 <select name="category" id="cat"></select></label>
     <label>제목 <input name="title" maxlength="120" required></label>
     <label>고민 내용 <textarea name="body" maxlength="2000" required placeholder="편하게 적어주세요."></textarea></label>
+    <label class="check" id="anonBox" hidden><input type="checkbox" name="anonymous"><span>익명으로 상담하기<br><span class="muted">상담사에게 내 닉네임·프로필 사진이 보이지 않고 ‘익명’으로 나와요. 운영 관리를 위해 관리자는 볼 수 있어요.</span></span></label>
     <p class="muted" id="consent" hidden>상담을 요청하면 <a href="/terms" target="_blank" rel="noopener">이용약관</a>과 <a href="/privacy" target="_blank" rel="noopener">개인정보처리방침</a>(민감정보 처리, 미국 서버로의 국외 이전 포함)에 동의한 것으로 봐요. 이름·연락처처럼 나를 알아볼 수 있는 정보는 적지 않는 걸 권해요.</p>
     <p class="err" id="err"></p>
     <button class="btn primary">상담 요청하기</button>
@@ -56,6 +57,7 @@
 boot(true).then(({ user, categories }) => {
   cat.append(...categories.map((c) => el('option', {}, c)));
   consent.hidden = !user.is_anonymous;
+  anonBox.hidden = user.is_anonymous; // 가입 없이 쓰는 익명 이용자는 이미 익명이다
   if (user.is_anonymous) sub.textContent = `${user.nickname}(으)로 익명 상담 중이에요. 이 브라우저를 벗어나면 기록을 다시 볼 수 없어요.`;
 });
 // 상담 요청 전에 이용 안내(비전문 상담사 · 금지 행위)를 확인받는다
@@ -67,7 +69,7 @@ ruleDlg.addEventListener('cancel', () => { ruleDlg.returnValue = ''; });
 let sending = false;
 async function send() {
   if (sending) return; sending = true;
-  try { const { id } = await api('/api/consultations', Object.fromEntries(new FormData(f))); location.href = '/chat?id=' + id; }
+  try { const { id } = await api('/api/consultations', { ...Object.fromEntries(new FormData(f)), anonymous: f.elements.anonymous.checked }); location.href = '/chat?id=' + id; }
   catch (x) { err.textContent = x.message; sending = false; }
 }
 </script>

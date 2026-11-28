@@ -82,6 +82,13 @@ async function access(user, id) {
   return ok ? c : null;
 }
 
+// 익명 상담: 회원이 익명으로 요청하면 내담자 본인·관리자 말고는 (담당 상담사도) 내담자가 누군지 모른다
+// 닉네임·프로필 사진·회원 번호·역할을 가려서, 같은 회원의 다른 상담과 이어 볼 수도 없게 한다
+const ANON_NAME = '익명';
+const hidesClient = (c, viewer) => !!c.anonymous && viewer.role !== 'admin' && c.client_id !== viewer.id;
+const maskCase = (c, viewer) => (hidesClient(c, viewer) ? { ...c, client_id: null, client_name: ANON_NAME } : c);
+const maskMsg = (m, c) => (m.sender_id === c.client_id ? { ...m, sender_id: 0, nickname: ANON_NAME, role: 'user', avatar: null } : m);
+
 function login(req, user) {
   return new Promise((resolve, reject) =>
     req.session.regenerate((err) => {
@@ -420,8 +427,9 @@ app.post('/api/account/avatar/delete', auth(), wrap(async (req, res) => {
 // 상담 서비스라 사진도 아무에게나 보이지 않는다: 본인·관리자, 그리고 상담에서 마주치는 상대만
 async function canSeeAvatar(viewer, ownerId) {
   if (viewer.id === ownerId || viewer.role === 'admin') return true;
-  const [row] = await q(`SELECT 1 FROM consultations WHERE (client_id = ? AND counselor_id = ?) OR (counselor_id = ? AND client_id = ?)
-    OR (client_id = ? AND status = 'waiting' AND ?) LIMIT 1`,
+  // 익명으로 요청한 상담에선 상담사에게 내담자 사진을 보여주지 않는다
+  const [row] = await q(`SELECT 1 FROM consultations WHERE (anonymous = 0 AND client_id = ? AND counselor_id = ?)
+    OR (counselor_id = ? AND client_id = ?) OR (anonymous = 0 AND client_id = ? AND status = 'waiting' AND ?) LIMIT 1`,
   [ownerId, viewer.id, ownerId, viewer.id, ownerId, viewer.role === 'counselor' ? 1 : 0]);
   return !!row;
 }
@@ -629,7 +637,9 @@ app.post('/api/consultations', auth(), wrap(async (req, res) => {
   const body = String(req.body.body || '').trim();
   if (!title || title.length > 120) return res.status(400).json({ error: '제목은 1~120자로 해주세요.' });
   if (!body || body.length > MAX_MSG) return res.status(400).json({ error: `고민 내용은 1~${MAX_MSG}자로 해주세요.` });
-  const r = await q('INSERT INTO consultations (client_id, category, title) VALUES (?, ?, ?)', [req.user.id, category, title]);
+  // 가입 없이 쓰는 익명 이용자는 원래 익명#번호 라서 따로 숨길 게 없다
+  const anonymous = !req.user.is_anonymous && (req.body.anonymous === true || req.body.anonymous === 'on') ? 1 : 0;
+  const r = await q('INSERT INTO consultations (client_id, category, title, anonymous) VALUES (?, ?, ?, ?)', [req.user.id, category, title, anonymous]);
   await q('INSERT INTO messages (consultation_id, sender_id, body) VALUES (?, ?, ?)', [r.insertId, req.user.id, body]);
   io.to('counselors').emit('queue');
   res.json({ id: r.insertId });
@@ -642,11 +652,12 @@ const LIST = `SELECT c.*, cl.nickname AS client_name, co.nickname AS counselor_n
   LEFT JOIN reviews r ON r.consultation_id = c.id`;
 
 app.get('/api/consultations/mine', auth(), wrap(async (req, res) => {
-  res.json(await q(`${LIST} WHERE c.client_id = ? OR c.counselor_id = ? ORDER BY c.id DESC`, [req.user.id, req.user.id]));
+  res.json((await q(`${LIST} WHERE c.client_id = ? OR c.counselor_id = ? ORDER BY c.id DESC`, [req.user.id, req.user.id]))
+    .map((c) => maskCase(c, req.user)));
 }));
 
 app.get('/api/consultations/waiting', auth('counselor', 'admin'), wrap(async (req, res) => {
-  res.json(await q(`${LIST} WHERE c.status = 'waiting' ORDER BY c.id`));
+  res.json((await q(`${LIST} WHERE c.status = 'waiting' ORDER BY c.id`)).map((c) => maskCase(c, req.user)));
 }));
 
 app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
@@ -655,7 +666,8 @@ app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
   const [info] = await q(`${LIST} WHERE c.id = ?`, [c.id]);
   const messages = (await q(
     `SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role, u.avatar
-     FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id])).map(withAvatar);
+     FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id]))
+    .map((m) => (hidesClient(c, req.user) ? maskMsg(m, c) : withAvatar(m)));
   // 상담 기록: 담당 상담사·관리자만 / 후기: 내담자·담당 상담사·관리자
   const staffView = req.user.role === 'admin' || (c.counselor_id === req.user.id && isStaff(req.user));
   const [note] = staffView ? await q(`SELECT n.body, n.updated_at, u.nickname AS author
@@ -663,7 +675,7 @@ app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
   const [review] = staffView || c.client_id === req.user.id
     ? await q('SELECT rating, body, created_at, updated_at FROM reviews WHERE consultation_id = ?', [c.id]) : [];
   res.json({
-    consultation: info, messages, me: req.user.id,
+    consultation: maskCase(info, req.user), messages, me: req.user.id,
     note: note || null, review: review || null, can_note: staffView && !!c.counselor_id,
   });
 }));
@@ -710,10 +722,12 @@ app.get('/api/records', auth('counselor', 'admin'), wrap(async (req, res) => {
   const kw = String(req.query.q || '').trim().slice(0, 50);
   if (kw) {
     const like = '%' + kw.replace(/[\\%_]/g, '\\$&') + '%';
-    where.push('(c.title LIKE ? OR cl.nickname LIKE ? OR co.nickname LIKE ? OR n.body LIKE ? OR r.body LIKE ?)');
+    // 익명 상담은 상담사가 내담자 닉네임으로 찾을 수 없다 (찾아지면 누군지 드러난다)
+    const byClient = req.user.role === 'admin' ? 'cl.nickname LIKE ?' : '(c.anonymous = 0 AND cl.nickname LIKE ?)';
+    where.push(`(c.title LIKE ? OR ${byClient} OR co.nickname LIKE ? OR n.body LIKE ? OR r.body LIKE ?)`);
     params.push(like, like, like, like, like);
   }
-  const rows = await q(`SELECT c.id, c.title, c.category, c.status, c.created_at, c.closed_at, c.client_id, c.counselor_id,
+  const rows = await q(`SELECT c.id, c.title, c.category, c.anonymous, c.status, c.created_at, c.closed_at, c.client_id, c.counselor_id,
       cl.nickname AS client_name, co.nickname AS counselor_name,
       (SELECT COUNT(*) FROM messages m WHERE m.consultation_id = c.id) AS msg_count,
       n.body AS note, n.updated_at AS note_at, nu.nickname AS note_author,
@@ -727,7 +741,7 @@ app.get('/api/records', auth('counselor', 'admin'), wrap(async (req, res) => {
       COUNT(r.rating) AS reviews, ROUND(AVG(r.rating), 1) AS avg_rating
     FROM consultations c JOIN users co ON co.id = c.counselor_id LEFT JOIN reviews r ON r.consultation_id = c.id
     WHERE ${scope.join(' AND ')} GROUP BY co.id, co.nickname ORDER BY total DESC`, sp);
-  res.json({ rows, counselors: counselors.map((x) => ({ ...x, active: Number(x.active), closed: Number(x.closed),
+  res.json({ rows: rows.map((x) => maskCase(x, req.user)), counselors: counselors.map((x) => ({ ...x, active: Number(x.active), closed: Number(x.closed),
     avg_rating: x.avg_rating == null ? null : Number(x.avg_rating) })) });
 }));
 
@@ -736,7 +750,7 @@ app.post('/api/consultations/:id/accept', auth('counselor', 'admin'), wrap(async
     [req.user.id, req.params.id, req.user.id]);
   if (!r.affectedRows) return res.status(409).json({ error: '이미 다른 상담사가 맡았거나 수락할 수 없는 상담이에요.' });
   io.to('counselors').emit('queue');
-  io.to('c:' + req.params.id).emit('status', { status: 'active', counselor: req.user.nickname });
+  io.to(rooms(req.params.id)).emit('status', { status: 'active', counselor: req.user.nickname });
   res.json({ ok: true });
 }));
 
@@ -746,7 +760,7 @@ app.post('/api/consultations/:id/close', auth(), wrap(async (req, res) => {
     return res.status(403).json({ error: '권한이 없어요.' });
   await q("UPDATE consultations SET status = 'closed', closed_at = NOW() WHERE id = ? AND status <> 'closed'", [c.id]);
   io.to('counselors').emit('queue');
-  io.to('c:' + c.id).emit('status', { status: 'closed' });
+  io.to(rooms(c.id)).emit('status', { status: 'closed' });
   res.json({ ok: true });
 }));
 
@@ -895,6 +909,8 @@ app.use((err, req, res, next) => {
 // ── 실시간 채팅 ──
 const server = http.createServer(app);
 const io = new Server(server);
+// 상담방: 내담자가 누군지 보이는 사람은 c:번호, 익명 상담에서 가려 보는 사람(상담사)은 c:번호:anon
+const rooms = (id) => ['c:' + id, `c:${id}:anon`];
 io.engine.use(sessionMw);
 
 io.on('connection', async (socket) => {
@@ -905,7 +921,7 @@ io.on('connection', async (socket) => {
 
   socket.on('join', async (id, ack) => {
     const c = await access(me, id).catch(() => null);
-    if (c) socket.join('c:' + c.id);
+    if (c) socket.join(hidesClient(c, me) ? `c:${c.id}:anon` : 'c:' + c.id);
     ack?.({ ok: !!c });
   });
 
@@ -922,6 +938,7 @@ io.on('connection', async (socket) => {
       const [m] = await q(`SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role, u.avatar
         FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`, [r.insertId]);
       io.to('c:' + c.id).emit('msg', withAvatar(m));
+      io.to(`c:${c.id}:anon`).emit('msg', c.anonymous ? maskMsg(m, c) : withAvatar(m));
       ack?.({ ok: true });
     } catch (e) {
       console.error(e);

@@ -61,7 +61,7 @@ function counselorCard(x) {
 
 function record(r) {
   const mine = r.counselor_id === me.id || me.role === 'admin';
-  const meta = [r.category, '내담자 ' + r.client_name, '상담사 ' + (r.counselor_name || '알 수 없음'),
+  const meta = [r.category, '내담자 ' + r.client_name + (r.anonymous && r.client_id ? ' (익명 상담)' : ''), '상담사 ' + (r.counselor_name || '알 수 없음'),
     fmt(r.created_at) + (r.closed_at ? ' ~ ' + fmt(r.closed_at).slice(5) : ''), `메시지 ${r.msg_count}개`].join(' · ');
   return el('details', { class: 'card rec' },
     el('summary', {},

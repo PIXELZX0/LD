@@ -77,7 +77,9 @@ function add(m) {
 function render() {
   title.textContent = c.title;
   st.replaceChildren(statusTag(c.status));
-  info.textContent = `${c.category} · 내담자 ${c.client_name} · 상담사 ${c.counselor_name || '배정 대기중'}`;
+  // 익명 상담: 상담사에겐 이름이 이미 '익명'으로 오고, 내담자 본인·관리자에겐 익명 상담이라고 알려준다
+  const anon = c.anonymous && c.client_id ? (me.id === c.client_id ? ' (상담사에게 익명)' : ' (익명 상담)') : '';
+  info.textContent = `${c.category} · 내담자 ${c.client_name}${anon} · 상담사 ${c.counselor_name || '배정 대기중'}`;
   const part = me.id === c.client_id || me.id === c.counselor_id;
   noteBtn.hidden = !canNote;
   noteBtn.textContent = note ? '상담 기록 ✓' : '상담 기록';
