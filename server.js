@@ -796,20 +796,19 @@ app.post('/api/admin/applications/:id/:decision', admin, wrap(async (req, res) =
   res.json({ ok: true });
 }));
 
-// 검색(닉네임·이메일·X 아이디) + 필터: kind=member|guest(익명), role=user|counselor|admin
+// 회원 목록: 일회성 익명 손님(/api/anon)은 빼고 가입한 회원만
+// 검색(닉네임·이메일·X 아이디) + 필터: role=user|counselor|admin
 app.get('/api/admin/users', admin, wrap(async (req, res) => {
-  const where = [], args = [];
+  const where = ['u.is_anonymous = 0'], args = [];
   const s = String(req.query.q || '').trim().slice(0, 100);
   if (s) {
     const like = '%' + s.replace(/[\\%_]/g, '\\$&') + '%'; // % _ 는 글자 그대로 찾는다
     where.push('(u.nickname LIKE ? OR u.email LIKE ? OR sx.username LIKE ?)'); args.push(like, like, like);
   }
-  if (req.query.kind === 'member') where.push('u.is_anonymous = 0');
-  else if (req.query.kind === 'guest') where.push('u.is_anonymous = 1');
   if (['user', 'counselor', 'admin'].includes(req.query.role)) { where.push('u.role = ?'); args.push(req.query.role); }
-  res.json(await q(`SELECT u.id, u.email, u.nickname, u.role, u.is_anonymous, u.banned, u.created_at, sx.username AS x_username
+  res.json(await q(`SELECT u.id, u.email, u.nickname, u.role, u.banned, u.created_at, sx.username AS x_username
     FROM users u LEFT JOIN social_accounts sx ON sx.user_id = u.id AND sx.provider = 'x'
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY u.id DESC LIMIT 500`, args));
+    WHERE ${where.join(' AND ')} ORDER BY u.id DESC LIMIT 500`, args));
 }));
 
 app.post('/api/admin/users/:id', admin, wrap(async (req, res) => {

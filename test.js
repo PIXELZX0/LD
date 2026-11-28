@@ -134,8 +134,9 @@ test('전체 흐름', async () => {
   const found = (await adm('/api/admin/users?q=' + encodeURIComponent(email))).body;
   assert.equal(found.length, 1); assert.equal(found[0].email, email);
   assert.ok((await adm('/api/admin/users?role=admin')).body.every((x) => x.role === 'admin'));
-  assert.ok((await adm('/api/admin/users?kind=guest')).body.every((x) => x.is_anonymous));
-  assert.ok((await adm('/api/admin/users?kind=member&role=user')).body.every((x) => !x.is_anonymous && x.role === 'user'));
+  const all = (await adm('/api/admin/users')).body; // 일회성 익명 손님은 회원 목록에 없다
+  assert.ok(all.length > 0 && !all.some((x) => x.id === a.body.user.id));
+  assert.ok((await adm('/api/admin/users?role=user')).body.every((x) => x.role === 'user'));
   assert.equal((await adm('/api/admin/users?q=%25%25%25' + Date.now())).body.length, 0); // % 는 와일드카드가 아니다
   assert.equal((await coun('/api/admin/users')).status, 403);
   const mine = apps.find((x) => x.nickname === '상담이' && x.status === 'pending');

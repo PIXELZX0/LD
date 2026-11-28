@@ -64,9 +64,9 @@ const table = (head, rows) => {
   ? el('div', { class: 'table-wrap stack' }, el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))), el('tbody', {}, rows)))
   : el('p', { class: 'empty' }, '아직 항목이 없어요.');
 };
-const userState = { kind: '', role: '', q: '' };
+const userState = { role: '', q: '' };
 const userTable = (rows) => table(['닉네임', '이메일·X', '역할', '상태'], rows.map((x) => el('tr', {},
-  el('td', {}, x.nickname), el('td', {}, x.is_anonymous ? '(익명)' : x.email, x.x_username ? el('div', { class: 'muted' }, 'X @' + x.x_username) : null),
+  el('td', {}, x.nickname), el('td', {}, x.email, x.x_username ? el('div', { class: 'muted' }, 'X @' + x.x_username) : null),
   el('td', {}, x.id === me.id ? ROLE[x.role] : el('select', { onchange: (e) => act(() => api('/api/admin/users/' + x.id, { role: e.target.value }))() },
     Object.entries(ROLE).map(([k, v]) => el('option', { value: k, selected: k === x.role }, v)))),
   el('td', { class: 'nowrap' }, x.id === me.id ? null : el('button', { class: 'btn sm', onclick: act(() => api('/api/admin/users/' + x.id, { banned: !x.banned })) }, x.banned ? '정지 해제' : '정지')))));
@@ -84,8 +84,6 @@ const views = {
   async users() {
     // 검색어·필터는 탭을 다시 그려도(역할 변경·정지 후) 남아 있게 밖에 둔다
     const f = el('form', { class: 'filters', role: 'search', onsubmit: (e) => { e.preventDefault(); load(); } },
-      el('select', { name: 'kind', 'aria-label': '회원 구분' }, [['', '회원·비회원 전체'], ['member', '회원'], ['guest', '비회원 (익명)']]
-        .map(([v, t]) => el('option', { value: v, selected: v === userState.kind }, t))),
       el('select', { name: 'role', 'aria-label': '역할' }, el('option', { value: '' }, '모든 역할'),
         Object.entries(ROLE).map(([k, v]) => el('option', { value: k, selected: k === userState.role }, v))),
       el('input', { type: 'search', name: 'q', maxlength: '100', placeholder: '닉네임·이메일·X 아이디 검색', 'aria-label': '회원 검색', value: userState.q }));
