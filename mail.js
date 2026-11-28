@@ -2,6 +2,8 @@ const nodemailer = require('nodemailer');
 
 const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE, SMTP_FROM } = process.env;
 const port = Number(SMTP_PORT || 587);
+// 사이트의 모든 문의는 이 주소로 받는다 (관리자 페이지 > 메일함)
+const CONTACT = 'contact@yourloveour.design';
 
 const transport = SMTP_HOST && nodemailer.createTransport({
   host: SMTP_HOST,
@@ -11,6 +13,7 @@ const transport = SMTP_HOST && nodemailer.createTransport({
 });
 
 const mail = {
+  contact: CONTACT,
   // SMTP 미설정 시: 개발 환경에선 콘솔에 출력, 운영(NODE_ENV=production)에선 발송 불가
   enabled: !!transport || process.env.NODE_ENV !== 'production',
   async send({ to, subject, text, html }) {
@@ -19,7 +22,7 @@ const mail = {
       console.log(`[mail:dev] to=${to} subject=${subject}\n${text}`);
       return;
     }
-    await transport.sendMail({ from: SMTP_FROM || SMTP_USER, to, subject, text, html });
+    await transport.sendMail({ from: SMTP_FROM || SMTP_USER, replyTo: CONTACT, to, subject, text, html });
   },
 };
 
@@ -51,7 +54,7 @@ function layout({ preheader, body }) {
       ${body}
     </td></tr>
     <tr><td style="padding:24px 8px 0;font-size:12px;line-height:1.7;color:${C.soft}">
-      이 메일은 발신 전용이라 회신할 수 없어요.<br>
+      궁금한 점은 <a href="mailto:${CONTACT}" style="color:${C.muted};text-decoration:underline">${CONTACT}</a> 로 문의해주세요.<br>
       위급할 땐 <span style="white-space:nowrap"><b style="color:${C.muted}">109</b> 자살예방상담</span> · <span style="white-space:nowrap"><b style="color:${C.muted}">1577-0199</b> 정신건강위기상담</span> · <b style="color:${C.muted}">112·119</b><br>
       &copy; Love Design
     </td></tr>
@@ -65,7 +68,7 @@ function layout({ preheader, body }) {
 // 회원가입 인증번호 메일
 mail.verifyCode = (code) => ({
   subject: `[Love Design] 인증번호 ${code}`,
-  text: `Love Design 회원가입 인증번호는 ${code} 입니다.\n10분 안에 입력해주세요.\n\n본인이 요청하지 않았다면 이 메일을 무시하세요. 계정은 만들어지지 않아요.`,
+  text: `Love Design 회원가입 인증번호는 ${code} 입니다.\n10분 안에 입력해주세요.\n\n본인이 요청하지 않았다면 이 메일을 무시하세요. 계정은 만들어지지 않아요.\n\n문의: ${CONTACT}`,
   html: layout({
     preheader: `인증번호 ${code} · 10분 안에 입력해주세요.`,
     body: `

@@ -124,7 +124,7 @@ const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 app.post('/api/email/code', wrap(async (req, res) => {
   const email = normEmail(req.body.email);
   if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
-  if (!mail.enabled) return res.status(503).json({ error: '지금은 인증 메일을 보낼 수 없어요. 관리자에게 문의해주세요.' });
+  if (!mail.enabled) return res.status(503).json({ error: `지금은 인증 메일을 보낼 수 없어요. ${mail.contact} 로 문의해주세요.` });
   const key = 'mail:' + req.ip;
   if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
   const [dup] = await q('SELECT id FROM users WHERE email = ?', [email]);
