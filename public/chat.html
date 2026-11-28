@@ -37,7 +37,7 @@ function render() {
   const canSend = c.status === 'active' && part;
   f.hidden = !canSend && c.status !== 'waiting';
   t.disabled = f.querySelector('button').disabled = !canSend;
-  t.placeholder = c.status === 'waiting' ? '상담자가 수락하면 대화를 시작할 수 있어요.' : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)';
+  t.placeholder = c.status === 'waiting' ? '상담자 수락을 기다리고 있어요' : (matchMedia('(pointer: coarse)').matches ? '메시지를 입력하세요' : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)');
 }
 boot(true).then(async ({ user }) => {
   me = user;

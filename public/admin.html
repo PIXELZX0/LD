@@ -27,17 +27,20 @@
 const APP = { pending: '심사중', approved: '승인됨', rejected: '거절됨' };
 let me;
 const act = (fn) => async () => { try { await fn(); } catch (x) { alert(x.message); } show(cur); };
-const table = (head, rows) => rows.length
-  ? el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))), el('tbody', {}, rows)))
+const table = (head, rows) => {
+  rows.forEach((r) => [...r.children].forEach((td, i) => head[i] ? td.setAttribute('data-label', head[i]) : td.classList.add('act')));
+  return rows.length
+  ? el('div', { class: 'table-wrap stack' }, el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))), el('tbody', {}, rows)))
   : el('p', { class: 'empty' }, '아직 항목이 없어요.');
+};
 const views = {
   async apps() {
     const rows = await api('/api/admin/applications');
     return table(['지원자', '소개', '상태', ''], rows.map((a) => el('tr', {},
       el('td', {}, a.nickname, el('div', { class: 'muted' }, a.email)),
       el('td', { style: 'white-space:pre-wrap' }, a.intro),
-      el('td', {}, APP[a.status], el('div', { class: 'muted' }, fmt(a.created_at))),
-      el('td', {}, a.status === 'pending' ? [
+      el('td', { class: 'nowrap' }, APP[a.status], el('div', { class: 'muted' }, fmt(a.created_at))),
+      el('td', { class: 'nowrap' }, a.status === 'pending' ? [
         el('button', { class: 'btn sm primary', onclick: act(() => api(`/api/admin/applications/${a.id}/approve`, {})) }, '승인'),
         el('button', { class: 'btn sm', onclick: act(() => api(`/api/admin/applications/${a.id}/reject`, {})) }, '거절')] : null))));
   },
@@ -47,13 +50,13 @@ const views = {
       el('td', {}, x.nickname), el('td', {}, x.is_anonymous ? '(익명)' : x.email),
       el('td', {}, x.id === me.id ? ROLE[x.role] : el('select', { onchange: (e) => act(() => api('/api/admin/users/' + x.id, { role: e.target.value }))() },
         Object.entries(ROLE).map(([k, v]) => el('option', { value: k, selected: k === x.role }, v)))),
-      el('td', {}, x.id === me.id ? '' : el('button', { class: 'btn sm', onclick: act(() => api('/api/admin/users/' + x.id, { banned: !x.banned })) }, x.banned ? '정지 해제' : '정지')))));
+      el('td', { class: 'nowrap' }, x.id === me.id ? null : el('button', { class: 'btn sm', onclick: act(() => api('/api/admin/users/' + x.id, { banned: !x.banned })) }, x.banned ? '정지 해제' : '정지')))));
   },
   async cons() {
     const rows = await api('/api/admin/consultations');
     return table(['제목', '분야', '내담자', '상담자', '상태', '생성'], rows.map((c) => el('tr', {},
       el('td', {}, el('a', { href: '/chat?id=' + c.id }, c.title)), el('td', {}, c.category),
-      el('td', {}, c.client_name), el('td', {}, c.counselor_name || '-'), el('td', {}, statusTag(c.status)), el('td', {}, fmt(c.created_at)))));
+      el('td', {}, c.client_name), el('td', {}, c.counselor_name || '-'), el('td', {}, statusTag(c.status)), el('td', { class: 'nowrap' }, fmt(c.created_at)))));
   },
 };
 let cur = 'apps';

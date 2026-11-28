@@ -20,7 +20,7 @@
     <h2>상담자 지원</h2>
     <div class="card">
     <p class="muted">다른 사람의 고민을 함께 들어주고 싶다면 지원해주세요. 관리자 승인 후 상담자로 활동할 수 있어요.</p>
-    <div id="apps" class="muted" style="white-space:pre-line"></div>
+    <div id="apps" class="muted" style="white-space:pre-line;margin-bottom:16px"></div>
     <form id="f">
       <label>자기소개 · 상담 경험 <textarea name="intro" minlength="10" maxlength="2000" required></textarea></label>
       <p class="err" id="err"></p>
@@ -36,7 +36,7 @@ boot(true).then(async ({ user }) => {
   list.replaceChildren(...(rows.length ? rows.map((c) => el('a', { class: 'card', href: '/chat?id=' + c.id },
     el('div', { class: 'row' }, el('b', {}, c.title), statusTag(c.status)),
     el('div', { class: 'muted' }, `${c.category} · ${fmt(c.created_at)} · ${c.client_id === user.id ? '상담자 ' + (c.counselor_name || '배정 전') : '내담자 ' + c.client_name}`)))
-    : [el('p', { class: 'empty' }, '아직 상담이 없어요. 오른쪽 위 ‘새 상담 시작’으로 고민을 남겨보세요.')]));
+    : [el('p', { class: 'empty' }, '아직 상담이 없어요. ‘새 상담 시작’을 눌러 고민을 남겨보세요.')]));
   if (user.role === 'user' && !user.is_anonymous) {
     apply.hidden = false;
     const apps = await api('/api/apply');
