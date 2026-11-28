@@ -79,6 +79,27 @@
       </div>
     </section>
 
+    <section id="emSection" hidden>
+      <h2>이메일 로그인 추가</h2>
+      <div class="card">
+        <p class="muted">지금은 X로만 로그인해요. 이메일을 인증하고 비밀번호를 정하면 X 없이도 이메일로 로그인할 수 있어요.</p>
+        <form id="emForm">
+          <label>이메일
+            <span class="inline">
+              <input name="email" id="emEmail" type="email" required autocomplete="email">
+              <button type="button" class="btn" id="emSend">인증번호 받기</button>
+            </span>
+          </label>
+          <label>인증번호 <input name="code" id="emCode" inputmode="numeric" pattern="\d{6}" maxlength="6" required autocomplete="one-time-code" placeholder="메일로 받은 6자리"></label>
+          <p class="muted" id="emInfo"></p>
+          <label>비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+          <label>비밀번호 확인 <input name="confirm" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+          <p class="err" id="emMsg"></p>
+          <button class="btn">이메일 로그인 추가</button>
+        </form>
+      </div>
+    </section>
+
     <section id="pwSection">
       <h2>비밀번호 변경</h2>
       <div class="card">
@@ -121,11 +142,7 @@ const bad = (node, text) => { node.textContent = text; node.classList.remove('ok
 const xr = xResult();
 boot(true).then(async () => {
   const { user, social } = await api('/api/account');
-  const row = (k, v) => [el('dt', {}, k), el('dd', {}, v)];
-  info.replaceChildren(
-    ...(user.is_anonymous ? row('계정', '익명') : user.email ? row('이메일', user.email) : row('계정', 'X로 가입')),
-    ...row('역할', ROLE[user.role]),
-    ...row('가입일', fmt(user.created_at).slice(0, 10)));
+  showInfo(user);
   showProfile(user);
   if (user.is_anonymous) {
     profNote.textContent = '닉네임과 사진은 회원만 정할 수 있어요.';
@@ -133,14 +150,58 @@ boot(true).then(async () => {
   }
   avPick.disabled = false;
   nickEdit.hidden = false;
-  pwUser.value = user.email || '';
-  pwSection.hidden = !user.has_password; // X 로 가입한 회원은 비밀번호가 없다
+  showLogin(user);
   memberOnly.hidden = false;
   showX(user.x, social.x);
   if (xr.error) bad(xMsg, xr.error);
   else if (xr.ok === 'linked') ok(xMsg, 'X 계정을 연결했어요. 이제 X로도 로그인할 수 있어요.');
   loadPasskeys();
 });
+
+function showInfo(user) {
+  const row = (k, v) => [el('dt', {}, k), el('dd', {}, v)];
+  info.replaceChildren(
+    ...(user.is_anonymous ? row('계정', '익명') : user.email ? row('이메일', user.email) : row('계정', 'X로 가입')),
+    ...row('역할', ROLE[user.role]),
+    ...row('가입일', fmt(user.created_at).slice(0, 10)));
+}
+// X 로 가입한 회원은 이메일·비밀번호가 없다 → 비밀번호 변경 대신 이메일 로그인 추가를 보여 준다
+function showLogin(user) {
+  pwUser.value = user.email || '';
+  pwSection.hidden = !user.has_password;
+  emSection.hidden = !!user.email;
+}
+
+// ── 이메일 로그인 추가 (회원가입과 같은 인증번호) ──
+let emTimer;
+emSend.onclick = async () => {
+  bad(emMsg, '');
+  if (!emEmail.reportValidity()) return;
+  emSend.disabled = true;
+  try {
+    await api('/api/email/code', { email: emEmail.value });
+    emInfo.textContent = `${emEmail.value} 로 인증번호를 보냈어요. 10분 안에 입력해주세요. (스팸함도 확인해주세요)`;
+    emCode.focus();
+    let left = 60;
+    clearInterval(emTimer);
+    emTimer = setInterval(() => {
+      emSend.textContent = --left > 0 ? `다시 받기 (${left})` : '다시 받기';
+      if (left <= 0) { clearInterval(emTimer); emSend.disabled = false; }
+    }, 1000);
+  } catch (x) { bad(emMsg, x.message); emSend.disabled = false; }
+};
+emForm.onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(emForm));
+  if (d.password !== d.confirm) return bad(emMsg, '비밀번호가 서로 달라요.');
+  try {
+    await api('/api/account/email', { email: d.email, code: d.code, password: d.password });
+    clearInterval(emTimer);
+    const { user } = await api('/api/account');
+    showInfo(user); showLogin(user); refreshWho(user);
+    ok(pwMsg, '이메일 로그인을 추가했어요. 이제 이메일과 비밀번호로도 로그인할 수 있어요.');
+  } catch (x) { bad(emMsg, x.message); }
+};
 
 // ── X 계정: 연결하면 X로 로그인할 수 있다 ──
 function showX(x, enabled) {

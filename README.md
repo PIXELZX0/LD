@@ -38,7 +38,7 @@ Node + Express + socket.io + MySQL. 익명/회원 상담, 상담자 지원·승�
 X 로그인: [X 개발자 포털](https://developer.x.com)에서 앱의 User authentication settings 를 켜고
 (App permissions `Read`, Type of App `Web App` = confidential client), Callback URI 에 `https://yourloveour.design/api/auth/x/callback` 을 넣은 뒤
 OAuth 2.0 Client ID·Secret 을 env 에 넣어요. 처음 보는 X 계정은 약관 동의·닉네임을 받아 새로 가입시키고(이메일·비밀번호 없음),
-회원은 `내 정보`에서 X 를 연결·해제해요. 로그인 방법(이메일+비밀번호 / X / 패스키)이 하나도 남지 않게 되는 해제·삭제는 막아요.
+회원은 `내 정보`에서 X 를 연결·해제하고, X 로만 가입한 회원은 이메일 인증 + 비밀번호로 이메일 로그인을 추가할 수 있어요. 로그인 방법(이메일+비밀번호 / X / 패스키)이 하나도 남지 않게 되는 해제·삭제는 막아요.
 X 토큰은 프로필을 한 번 읽고 바로 폐기해요 (저장 안 함).
 
 도메인을 바꾸면 기존 패스키는 쓸 수 없어요 (RP ID 가 도메인에 묶임). 운영은 HTTPS 필수.

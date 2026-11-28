@@ -465,6 +465,28 @@ test('X 로그인·가입·연결', async () => {
   assert.equal(await viaX(me, xa, '/api/auth/x?link=1'), '/account?x=linked'); // 이미 내 것
   assert.equal((await me('/api/passkeys/delete', { id: key.id })).status, 200);
 
+  // X 로 가입한 회원이 이메일 로그인 추가 → 이메일로 로그인 가능
+  const mine = rnd() + '@t.io';
+  const taken = rnd() + '@t.io';
+  const first = client();
+  await first('/api/email/code', { email: taken });
+  assert.equal((await first('/api/signup', { email: taken, password: 'password1', nickname: '먼저', code: lastCode(taken), agree: true })).status, 200);
+  assert.equal((await me('/api/email/code', { email: taken })).status, 409); // 이미 가입된 이메일
+  assert.equal((await me('/api/account/x/unlink', {})).status, 400); // 아직 X 뿐
+  await me('/api/email/code', { email: mine });
+  assert.equal((await me('/api/account/email', { email: mine, code: '000000', password: 'password1' })).status, 400);
+  assert.equal((await me('/api/account/email', { email: mine, code: lastCode(mine), password: 'short' })).status, 400);
+  const added = await me('/api/account/email', { email: mine, code: lastCode(mine), password: 'password1' });
+  assert.equal(added.status, 200); assert.equal(added.body.user.email, mine);
+  const acc2 = (await me('/api/account')).body.user;
+  assert.equal(acc2.email, mine); assert.equal(acc2.has_password, true);
+  assert.equal((await me('/api/account/email', { email: rnd() + '@t.io', code: '123456', password: 'password1' })).status, 400); // 이미 있음
+  const byMail = client();
+  assert.equal((await byMail('/api/login', { email: mine, password: 'password1' })).status, 200);
+  assert.equal((await byMail('/api/me')).body.user.id, su.body.user.id);
+  const guest = client(); await guest('/api/anon', {});
+  assert.equal((await guest('/api/account/email', { email: rnd() + '@t.io', code: '123456', password: 'password1' })).status, 403);
+
   // 이메일 회원에 X 연결 → X 로 로그인 가능
   const email = rnd() + '@t.io';
   const em = client();

@@ -145,6 +145,17 @@ app.post('/api/email/code', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// 이메일 인증번호 확인 → 틀리면 오류 문구, 맞으면 null
+async function checkCode(email, code) {
+  if (!/^\d{6}$/.test(code)) return '이메일로 받은 6자리 인증번호를 입력해주세요.';
+  // 시도 횟수를 먼저 원자적으로 올린다 → 동시 요청으로 5회 제한을 넘길 수 없다
+  const r0 = await q('UPDATE email_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < 5 AND expires_at > NOW()', [email]);
+  if (!r0.affectedRows) return '인증번호가 만료됐어요. 다시 받아주세요.';
+  const [ec] = await q('SELECT code_hash FROM email_codes WHERE email = ?', [email]);
+  if (!ec || !crypto.timingSafeEqual(Buffer.from(sha(code)), Buffer.from(ec.code_hash))) return '인증번호가 맞지 않아요.';
+  return null;
+}
+
 app.post('/api/signup', wrap(async (req, res) => {
   const email = normEmail(req.body.email);
   const password = String(req.body.password || '');
@@ -153,14 +164,9 @@ app.post('/api/signup', wrap(async (req, res) => {
   if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
   if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '비밀번호는 8~72자로 해주세요.' });
   if (nickname.length < 1 || nickname.length > 20) return res.status(400).json({ error: '닉네임은 1~20자로 해주세요.' });
-  if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: '이메일로 받은 6자리 인증번호를 입력해주세요.' });
   if (req.body.agree !== true) return res.status(400).json({ error: '필수 약관에 모두 동의해주세요.' });
-  // 시도 횟수를 먼저 원자적으로 올린다 → 동시 요청으로 5회 제한을 넘길 수 없다
-  const r0 = await q('UPDATE email_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < 5 AND expires_at > NOW()', [email]);
-  if (!r0.affectedRows) return res.status(400).json({ error: '인증번호가 만료됐어요. 다시 받아주세요.' });
-  const [ec] = await q('SELECT code_hash FROM email_codes WHERE email = ?', [email]);
-  if (!ec || !crypto.timingSafeEqual(Buffer.from(sha(code)), Buffer.from(ec.code_hash)))
-    return res.status(400).json({ error: '인증번호가 맞지 않아요.' });
+  const bad = await checkCode(email, code);
+  if (bad) return res.status(400).json({ error: bad });
   try {
     const r = await q('INSERT INTO users (email, password_hash, nickname, terms_ver, agreed_at) VALUES (?, ?, ?, ?, NOW())',
       [email, await bcrypt.hash(password, 10), nickname, TERMS_VER]);
@@ -295,9 +301,31 @@ app.post('/api/account/x/unlink', auth(), wrap(async (req, res) => {
   const m = await loginMethods(req.user);
   if (!m.x) return res.status(404).json({ error: '연결된 X 계정이 없어요.' });
   if (!m.password && !m.passkeys)
-    return res.status(400).json({ error: 'X 말고는 로그인할 방법이 없어서 연결을 해제할 수 없어요. 먼저 패스키를 등록해주세요.' });
+    return res.status(400).json({ error: 'X 말고는 로그인할 방법이 없어서 연결을 해제할 수 없어요. 먼저 이메일 로그인이나 패스키를 추가해주세요.' });
   await q("DELETE FROM social_accounts WHERE provider = 'x' AND user_id = ?", [req.user.id]);
   res.json({ ok: true });
+}));
+
+// X 로 가입한 회원이 이메일 로그인(이메일 인증 + 비밀번호)을 추가한다
+app.post('/api/account/email', auth(), wrap(async (req, res) => {
+  if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 이메일을 등록할 수 있어요.' });
+  if (req.user.email) return res.status(400).json({ error: '이미 이메일이 등록돼 있어요.' });
+  const email = normEmail(req.body.email);
+  const password = String(req.body.password || '');
+  if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
+  if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '비밀번호는 8~72자로 해주세요.' });
+  const bad = await checkCode(email, String(req.body.code || '').trim());
+  if (bad) return res.status(400).json({ error: bad });
+  try {
+    const r = await q('UPDATE users SET email = ?, password_hash = ? WHERE id = ? AND email IS NULL',
+      [email, await bcrypt.hash(password, 10), req.user.id]);
+    if (!r.affectedRows) return res.status(400).json({ error: '이미 이메일이 등록돼 있어요.' });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: '이미 가입된 이메일이에요.' });
+    throw e;
+  }
+  await q('DELETE FROM email_codes WHERE email = ?', [email]);
+  res.json({ user: pub({ ...req.user, email }) });
 }));
 
 // ── 내 정보 ──
