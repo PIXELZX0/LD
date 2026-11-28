@@ -99,7 +99,7 @@ test('전체 흐름', async () => {
   assert.equal(c.status, 200);
   const cid = c.body.id;
 
-  // 회원 → 상담자 지원 → 관리자 승인
+  // 회원 → 상담사 지원 → 관리자 승인
   // 이메일 인증
   const coun = client();
   const email = rnd() + '@t.io';
@@ -327,7 +327,7 @@ test('상담 기록·후기', async () => {
   assert.equal((await cl(`/api/consultations/${cid}/review`, { rating: 5 })).status, 400);
   assert.equal((await co(`/api/consultations/${cid}/accept`, {})).status, 200);
 
-  // 상담 기록: 담당 상담자만, 내담자·다른 상담자 거부
+  // 상담 기록: 담당 상담사만, 내담자·다른 상담사 거부
   assert.equal((await cl(`/api/consultations/${cid}/note`, { body: '메모' })).status, 403);
   assert.equal((await co2(`/api/consultations/${cid}/note`, { body: '메모' })).status, 403);
   assert.equal((await co(`/api/consultations/${cid}/note`, { body: 'x'.repeat(5001) })).status, 400);
@@ -354,7 +354,7 @@ test('상담 기록·후기', async () => {
   // 종료 뒤에도 기록은 고칠 수 있음
   assert.equal((await co(`/api/consultations/${cid}/note`, { body: '종결. 적성검사 권유' })).status, 200);
 
-  // 상담 기록 모아보기: 상담자는 내 것만, 관리자는 전체 + 상담자 필터
+  // 상담 기록 모아보기: 상담사는 내 것만, 관리자는 전체 + 상담사 필터
   assert.equal((await cl('/api/records')).status, 403);
   const mine = (await co('/api/records')).body;
   assert.deepEqual(mine.rows.map((r) => r.id), [cid]);
@@ -412,7 +412,7 @@ test('프로필 사진', async () => {
   await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
   assert.equal((await raw(adm, url)).status, 200);
 
-  // 상담을 맡은 상담자에게는 보이고, 메시지에도 사진 주소가 실린다
+  // 상담을 맡은 상담사에게는 보이고, 메시지에도 사진 주소가 실린다
   const { id: cid } = (await me('/api/consultations', { category: '연애', title: '사진 테스트', body: '안녕하세요' })).body;
   assert.equal((await adm(`/api/consultations/${cid}/accept`, {})).status, 200);
   const msgs = (await adm(`/api/consultations/${cid}`)).body.messages;

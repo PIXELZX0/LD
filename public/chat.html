@@ -9,7 +9,7 @@
 <meta property="og:site_name" content="Love Design">
 <meta property="og:locale" content="ko_KR">
 <meta property="og:title" content="상담 · Love Design">
-<meta property="og:description" content="가입 없이 익명으로, 승인된 상담자와 1:1 실시간 채팅으로 나누는 고민상담 — Love Design">
+<meta property="og:description" content="가입 없이 익명으로, 승인된 상담사와 1:1 실시간 채팅으로 나누는 고민상담 — Love Design">
 <meta property="og:image" content="https://yourloveour.design/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
@@ -40,7 +40,7 @@
 <dialog class="sheet" id="noteDlg" aria-labelledby="noteH">
   <form id="noteF">
     <div class="row"><h2 id="noteH">상담 기록</h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
-    <p class="muted">담당 상담자와 관리자만 볼 수 있어요. 내담자에게는 보이지 않아요.</p>
+    <p class="muted">담당 상담사와 관리자만 볼 수 있어요. 내담자에게는 보이지 않아요.</p>
     <textarea name="body" maxlength="5000" placeholder="주요 고민&#10;상담 내용 요약&#10;다음에 이어갈 점"></textarea>
     <div class="row"><span class="muted" id="noteMeta"></span><span class="muted" id="noteCount"></span></div>
     <p class="err" id="noteErr"></p>
@@ -50,7 +50,7 @@
 <dialog class="sheet" id="reviewDlg" aria-labelledby="reviewH">
   <form id="reviewF">
     <div class="row"><h2 id="reviewH">상담 후기</h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
-    <p class="muted">상담은 어떠셨나요? 남긴 후기는 담당 상담자와 관리자가 볼 수 있어요.</p>
+    <p class="muted">상담은 어떠셨나요? 남긴 후기는 담당 상담사와 관리자가 볼 수 있어요.</p>
     <fieldset class="stars"><legend>만족도</legend>
       <input type="radio" name="rating" value="5" id="r5"><label for="r5" title="5점">★</label>
       <input type="radio" name="rating" value="4" id="r4"><label for="r4" title="4점">★</label>
@@ -77,7 +77,7 @@ function add(m) {
 function render() {
   title.textContent = c.title;
   st.replaceChildren(statusTag(c.status));
-  info.textContent = `${c.category} · 내담자 ${c.client_name} · 상담자 ${c.counselor_name || '배정 대기중'}`;
+  info.textContent = `${c.category} · 내담자 ${c.client_name} · 상담사 ${c.counselor_name || '배정 대기중'}`;
   const part = me.id === c.client_id || me.id === c.counselor_id;
   noteBtn.hidden = !canNote;
   noteBtn.textContent = note ? '상담 기록 ✓' : '상담 기록';
@@ -89,7 +89,7 @@ function render() {
   const canSend = c.status === 'active' && part;
   f.hidden = !canSend && c.status !== 'waiting';
   t.disabled = f.querySelector('button').disabled = !canSend;
-  t.placeholder = c.status === 'waiting' ? '상담자 수락을 기다리고 있어요' : (matchMedia('(pointer: coarse)').matches ? '메시지를 입력하세요' : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)');
+  t.placeholder = c.status === 'waiting' ? '상담사 수락을 기다리고 있어요' : (matchMedia('(pointer: coarse)').matches ? '메시지를 입력하세요' : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)');
 }
 boot(true).then(async ({ user }) => {
   me = user;
@@ -98,7 +98,7 @@ boot(true).then(async ({ user }) => {
   catch (x) { document.querySelector('main').replaceChildren(el('p', { class: 'wrap' }, x.message)); return; }
   c = data.consultation; note = data.note; review = data.review; canNote = data.can_note;
   render(); data.messages.forEach(add);
-  if (me.id !== c.client_id && (me.role === 'counselor' || me.role === 'admin')) { back.href = '/counselor'; back.textContent = '← 상담자'; }
+  if (me.id !== c.client_id && (me.role === 'counselor' || me.role === 'admin')) { back.href = '/counselor'; back.textContent = '← 상담사'; }
   if (c.status === 'closed') closedNotice();
   if (canNote && new URLSearchParams(location.search).has('note')) openNote();
   const s = io();
@@ -108,9 +108,9 @@ boot(true).then(async ({ user }) => {
     c.status = status; if (counselor) c.counselor_name = counselor;
     render();
     if (status === 'active') {
-      if (me.role === 'admin') canNote = true; // 상담자가 배정되면 관리자도 기록을 쓸 수 있다
+      if (me.role === 'admin') canNote = true; // 상담사가 배정되면 관리자도 기록을 쓸 수 있다
       render();
-      msgs.append(el('div', { class: 'notice' }, `${counselor} 상담자가 연결됐어요.`));
+      msgs.append(el('div', { class: 'notice' }, `${counselor} 상담사가 연결됐어요.`));
     } else closedNotice('상담이 종료됐어요.');
     msgs.scrollTop = msgs.scrollHeight;
   });

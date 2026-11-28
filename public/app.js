@@ -77,7 +77,7 @@ function topbar(user) {
   const nav = el('nav', { class: 'nav', 'aria-label': '주요 메뉴' });
   if (user) {
     nav.append(link('/my', '내 상담'));
-    if (isStaffRole(user)) nav.append(link('/counselor', '상담자'), link('/records', '상담 기록'));
+    if (isStaffRole(user)) nav.append(link('/counselor', '상담사'), link('/records', '상담 기록'));
     if (user.role === 'admin') nav.append(link('/admin', '관리자'));
     nav.append(link('/guide', '이용방법'));
   } else {

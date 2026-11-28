@@ -16,10 +16,10 @@
   <div class="page-head">
     <span class="eyebrow">ADMIN</span>
     <h1>관리자</h1>
-    <p class="sub">상담자 지원서 심사, 회원 관리, 전체 상담 현황, 문의 메일을 확인해요.</p>
+    <p class="sub">상담사 지원서 심사, 회원 관리, 전체 상담 현황, 문의 메일을 확인해요.</p>
   </div>
   <div class="tabs" role="tablist">
-    <button class="btn sm" role="tab" data-t="apps">상담자 지원</button>
+    <button class="btn sm" role="tab" data-t="apps">상담사 지원</button>
     <button class="btn sm" role="tab" data-t="users">회원</button>
     <button class="btn sm" role="tab" data-t="cons">전체 상담</button>
     <button class="btn sm" role="tab" data-t="mail">메일함 <span class="count" id="unseen" hidden></span></button>
@@ -111,7 +111,7 @@ const views = {
   async cons() {
     const rows = await api('/api/admin/consultations');
     return el('div', {}, el('p', { class: 'muted' }, '상담 기록과 후기는 ', el('a', { href: '/records' }, '상담 기록'), ' 페이지에서 자세히 볼 수 있어요.'),
-      table(['제목', '분야', '내담자', '상담자', '상태', '후기', '생성'], rows.map((c) => el('tr', {},
+      table(['제목', '분야', '내담자', '상담사', '상태', '후기', '생성'], rows.map((c) => el('tr', {},
         el('td', {}, el('a', { href: '/chat?id=' + c.id }, c.title)), el('td', {}, c.category),
         el('td', {}, c.client_name), el('td', {}, c.counselor_name || '-'), el('td', {}, statusTag(c.status)),
         el('td', { class: 'nowrap' }, c.rating ? stars(c.rating) : '-'), el('td', { class: 'nowrap' }, fmt(c.created_at))))));

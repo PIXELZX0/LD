@@ -656,7 +656,7 @@ app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
   const messages = (await q(
     `SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role, u.avatar
      FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id])).map(withAvatar);
-  // 상담 기록: 담당 상담자·관리자만 / 후기: 내담자·담당 상담자·관리자
+  // 상담 기록: 담당 상담사·관리자만 / 후기: 내담자·담당 상담사·관리자
   const staffView = req.user.role === 'admin' || (c.counselor_id === req.user.id && isStaff(req.user));
   const [note] = staffView ? await q(`SELECT n.body, n.updated_at, u.nickname AS author
     FROM counselor_notes n LEFT JOIN users u ON u.id = n.author_id WHERE n.consultation_id = ?`, [c.id]) : [];
@@ -668,11 +668,11 @@ app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
   });
 }));
 
-// ── 상담 기록 (상담자 작성, 내담자에겐 보이지 않음) ──
+// ── 상담 기록 (상담사 작성, 내담자에겐 보이지 않음) ──
 app.post('/api/consultations/:id/note', auth('counselor', 'admin'), wrap(async (req, res) => {
   const [c] = await q('SELECT * FROM consultations WHERE id = ?', [req.params.id]);
   if (!c || !c.counselor_id || (c.counselor_id !== req.user.id && req.user.role !== 'admin'))
-    return res.status(403).json({ error: '담당 상담자만 기록을 남길 수 있어요.' });
+    return res.status(403).json({ error: '담당 상담사만 기록을 남길 수 있어요.' });
   const body = String(req.body.body ?? '').trim();
   if (body.length > MAX_NOTE) return res.status(400).json({ error: `상담 기록은 ${MAX_NOTE}자까지 쓸 수 있어요.` });
   if (!body) {
@@ -689,7 +689,7 @@ app.post('/api/consultations/:id/note', auth('counselor', 'admin'), wrap(async (
 app.post('/api/consultations/:id/review', auth(), wrap(async (req, res) => {
   const [c] = await q('SELECT * FROM consultations WHERE id = ?', [req.params.id]);
   if (!c || c.client_id !== req.user.id) return res.status(403).json({ error: '내 상담에만 후기를 남길 수 있어요.' });
-  if (c.status !== 'closed' || !c.counselor_id) return res.status(400).json({ error: '상담자와의 상담이 끝난 뒤에 후기를 남길 수 있어요.' });
+  if (c.status !== 'closed' || !c.counselor_id) return res.status(400).json({ error: '상담사와의 상담이 끝난 뒤에 후기를 남길 수 있어요.' });
   const rating = Number(req.body.rating);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ error: '별점을 1~5점 중에서 골라주세요.' });
   const body = String(req.body.body || '').trim();
@@ -700,7 +700,7 @@ app.post('/api/consultations/:id/review', auth(), wrap(async (req, res) => {
   res.json({ review });
 }));
 
-// ── 상담 기록 모아보기: 상담자는 내가 맡은 상담, 관리자는 전체 ──
+// ── 상담 기록 모아보기: 상담사는 내가 맡은 상담, 관리자는 전체 ──
 app.get('/api/records', auth('counselor', 'admin'), wrap(async (req, res) => {
   const scope = ['c.counselor_id IS NOT NULL'], sp = [];
   if (req.user.role !== 'admin') { scope.push('c.counselor_id = ?'); sp.push(req.user.id); }
@@ -734,7 +734,7 @@ app.get('/api/records', auth('counselor', 'admin'), wrap(async (req, res) => {
 app.post('/api/consultations/:id/accept', auth('counselor', 'admin'), wrap(async (req, res) => {
   const r = await q("UPDATE consultations SET status = 'active', counselor_id = ? WHERE id = ? AND status = 'waiting' AND client_id <> ?",
     [req.user.id, req.params.id, req.user.id]);
-  if (!r.affectedRows) return res.status(409).json({ error: '이미 다른 상담자가 맡았거나 수락할 수 없는 상담이에요.' });
+  if (!r.affectedRows) return res.status(409).json({ error: '이미 다른 상담사가 맡았거나 수락할 수 없는 상담이에요.' });
   io.to('counselors').emit('queue');
   io.to('c:' + req.params.id).emit('status', { status: 'active', counselor: req.user.nickname });
   res.json({ ok: true });
@@ -750,7 +750,7 @@ app.post('/api/consultations/:id/close', auth(), wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ── 상담자 지원 ──
+// ── 상담사 지원 ──
 app.post('/api/apply', auth('user'), wrap(async (req, res) => {
   if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 지원할 수 있어요.' });
   const intro = String(req.body.intro || '').trim();

@@ -9,7 +9,7 @@
 <meta property="og:site_name" content="Love Design">
 <meta property="og:locale" content="ko_KR">
 <meta property="og:title" content="새 상담 · Love Design">
-<meta property="og:description" content="가입 없이 익명으로, 승인된 상담자와 1:1 실시간 채팅으로 나누는 고민상담 — Love Design">
+<meta property="og:description" content="가입 없이 익명으로, 승인된 상담사와 1:1 실시간 채팅으로 나누는 고민상담 — Love Design">
 <meta property="og:image" content="https://yourloveour.design/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
@@ -30,7 +30,7 @@
   <div class="page-head">
     <span class="eyebrow">NEW</span>
     <h1>고민 남기기</h1>
-    <p class="sub" id="sub">상담자가 수락하면 실시간 채팅이 시작돼요.</p>
+    <p class="sub" id="sub">상담사가 수락하면 실시간 채팅이 시작돼요.</p>
   </div>
   <form id="f">
     <label>분야 <select name="category" id="cat"></select></label>
@@ -46,8 +46,8 @@
   <form method="dialog" id="ruleF">
     <div class="row"><h2 id="ruleH">상담 전에 꼭 읽어주세요</h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
     <ol class="rules">
-      <li><b>상담자는 전문 상담사가 아니에요.</b><span>운영진이 승인한 일반인 상담자가 이야기를 들어드려요. 의료·심리치료 같은 전문 진단이나 치료를 대신할 수 없어요.</span></li>
-      <li><b>과도한 욕설과 성희롱은 금지예요.</b><span>상담자에게 심한 욕설을 하거나 성적인 말·성희롱을 하면 상담이 종료되고 이용이 정지될 수 있어요.</span></li>
+      <li><b>상담사는 자격을 갖춘 전문가가 아니에요.</b><span>운영진이 승인한 일반인 상담사가 이야기를 들어드려요. 의료·심리치료 같은 전문 진단이나 치료를 대신할 수 없어요.</span></li>
+      <li><b>과도한 욕설과 성희롱은 금지예요.</b><span>상담사에게 심한 욕설을 하거나 성적인 말·성희롱을 하면 상담이 종료되고 이용이 정지될 수 있어요.</span></li>
     </ol>
     <div class="row rule-act"><button type="button" class="btn" data-close>돌아가기</button><button class="btn primary" value="ok">확인했어요, 상담 시작</button></div>
   </form>
@@ -58,7 +58,7 @@ boot(true).then(({ user, categories }) => {
   consent.hidden = !user.is_anonymous;
   if (user.is_anonymous) sub.textContent = `${user.nickname}(으)로 익명 상담 중이에요. 이 브라우저를 벗어나면 기록을 다시 볼 수 없어요.`;
 });
-// 상담 요청 전에 이용 안내(비전문 상담자 · 금지 행위)를 확인받는다
+// 상담 요청 전에 이용 안내(비전문 상담사 · 금지 행위)를 확인받는다
 f.onsubmit = (e) => { e.preventDefault(); err.textContent = ''; ruleDlg.showModal(); };
 ruleDlg.addEventListener('close', () => { if (ruleDlg.returnValue === 'ok') send(); });
 document.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => { ruleDlg.returnValue = ''; ruleDlg.close(); }));

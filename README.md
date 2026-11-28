@@ -1,6 +1,6 @@
 # LD — Love Design 고민상담
 
-Node + Express + socket.io + MySQL. 익명/회원 상담, 상담자 지원·승인, 관리자 페이지, 1:1 실시간 채팅, 패스키 로그인, 상담 기록(상담자 메모·내담자 후기).
+Node + Express + socket.io + MySQL. 익명/회원 상담, 상담사 지원·승인, 관리자 페이지, 1:1 실시간 채팅, 패스키 로그인, 상담 기록(상담사 메모·내담자 후기).
 
 - `server.js` — API, 인증, 실시간 채팅
 - `xauth.js` — X(트위터) 로그인 (OAuth 2.0 + PKCE)
