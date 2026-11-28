@@ -143,7 +143,7 @@ send.onclick = async () => {
   send.disabled = true;
   try {
     await api('/api/email/code', { email: email.value });
-    info.textContent = `${email.value} 로 인증번호를 보냈어요. 10분 안에 입력해주세요. (스팸함도 확인해주세요)`;
+    info.textContent = `${email.value} 로 메일을 보냈어요. 받은 인증번호를 10분 안에 입력해주세요. 이미 가입된 이메일이면 인증번호 대신 로그인 안내가 가요. (스팸함도 확인해주세요)`;
     code.focus();
     let left = 60;
     clearInterval(timer);

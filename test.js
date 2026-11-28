@@ -5,7 +5,7 @@ process.env.X_CLIENT_ID ||= 'x-test-client';
 const test = require('node:test');
 const assert = require('node:assert');
 const { io: ioc } = require('socket.io-client');
-const { server, init, pool, store, mail } = require('./server');
+const { server, init, pool, store, mail, fails } = require('./server');
 
 const sent = [];
 mail.send = async (m) => { sent.push(m); };
@@ -17,6 +17,7 @@ test.before(async () => {
   await new Promise((r) => server.listen(0, r));
   base = 'http://127.0.0.1:' + server.address().port;
 });
+test.beforeEach(() => fails.clear()); // IP 당 시도 제한은 테스트마다 새로
 test.after(async () => { server.close(); await store.close(); await pool.end(); });
 
 function client() {
@@ -114,8 +115,11 @@ test('전체 흐름', async () => {
   assert.equal((await coun('/api/signup', { ...form, code })).status, 200);
   const [agreed] = (await pool.query('SELECT terms_ver, agreed_at FROM users WHERE email = ?', [email]))[0];
   assert.ok(agreed.terms_ver && agreed.agreed_at, '약관 동의 시각이 남아야 함');
-  assert.equal((await coun('/api/email/code', { email })).status, 409); // 이미 가입
-  assert.equal((await client()('/api/email/code', { email: process.env.ADMIN_EMAIL })).status, 409);
+  // 이미 가입된 이메일: 응답은 똑같이 200, 메일함에는 인증번호 대신 안내 메일 → 화면으로는 가입 여부를 알 수 없다
+  assert.equal((await coun('/api/email/code', { email })).status, 200);
+  assert.match(sent.at(-1).subject, /이미 가입된/); assert.doesNotMatch(sent.at(-1).text, /\d{6}/);
+  assert.equal((await coun('/api/signup', { ...form, code: '000000' })).body.error, '인증번호가 맞지 않아요.');
+  assert.equal((await client()('/api/email/code', { email: process.env.ADMIN_EMAIL })).status, 200);
   assert.equal((await coun('/api/consultations/waiting')).status, 403);
   assert.equal((await coun('/api/apply', { intro: '열 글자 넘는 자기소개입니다' })).status, 200);
   const adm = client();
@@ -280,7 +284,14 @@ test('내 정보', async () => {
   assert.ok((await (await fetch(base + '/reset')).text()).includes('비밀번호 찾기'));
   assert.ok((await (await fetch(base + '/login')).text()).includes('href="/reset"'));
   const lost = client();
-  assert.equal((await lost('/api/password/reset/code', { email: 'nobody-' + rnd() + '@t.io' })).status, 404);
+  // 가입 안 된 이메일도 응답은 같다 (메일은 안 보냄, 틀린 번호·쿨다운도 같은 응답)
+  const nobody = 'nobody-' + rnd() + '@t.io';
+  const before = sent.length;
+  assert.equal((await lost('/api/password/reset/code', { email: nobody })).status, 200);
+  assert.equal((await lost('/api/password/reset/code', { email: nobody })).status, 429);
+  assert.equal(sent.length, before);
+  assert.equal((await lost('/api/password/reset', { email: nobody, code: '000000', password: 'password5' })).body.error, '인증번호가 맞지 않아요.');
+  assert.equal((await client()('/api/login', { email: nobody, password: 'password5' })).body.error, '이메일 또는 비밀번호가 맞지 않아요.');
   assert.equal((await lost('/api/password/reset/code', { email: email.toUpperCase() })).status, 200);
   assert.match(sent.at(-1).subject, /비밀번호 찾기/);
   assert.equal((await lost('/api/password/reset/code', { email })).status, 429); // 1분 쿨다운
@@ -509,7 +520,9 @@ test('X 로그인·가입·연결', async () => {
   const first = client();
   await first('/api/email/code', { email: taken });
   assert.equal((await first('/api/signup', { email: taken, password: 'password1', nickname: '먼저', code: lastCode(taken), agree: true })).status, 200);
-  assert.equal((await me('/api/email/code', { email: taken })).status, 409); // 이미 가입된 이메일
+  assert.equal((await me('/api/email/code', { email: taken })).status, 200); // 이미 가입된 이메일 → 안내 메일만
+  assert.match(sent.at(-1).subject, /이미 가입된/);
+  assert.equal((await me('/api/account/email', { email: taken, code: '000000', password: 'password1' })).status, 400);
   assert.equal((await me('/api/account/x/unlink', {})).status, 400); // 아직 X 뿐
   await me('/api/email/code', { email: mine });
   assert.equal((await me('/api/account/email', { email: mine, code: '000000', password: 'password1' })).status, 400);

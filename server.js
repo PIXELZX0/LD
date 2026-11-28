@@ -122,27 +122,36 @@ const normEmail = (v) => String(v || '').trim().toLowerCase();
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 
 // 회원가입 이메일 인증번호 발송 (6자리, 10분 유효, 재발송 1분 간격, 입력 5회까지)
+// 가입 여부는 응답으로 알려 주지 않는다: 이미 가입된 이메일이면 인증번호 대신 '이미 가입돼 있어요' 안내 메일을 보낸다
 app.post('/api/email/code', wrap(async (req, res) => {
   const email = normEmail(req.body.email);
   if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
   if (!mail.enabled) return res.status(503).json({ error: `지금은 인증 메일을 보낼 수 없어요. ${mail.contact} 로 문의해주세요.` });
   const key = 'mail:' + req.ip;
   if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
-  const [dup] = await q('SELECT id FROM users WHERE email = ?', [email]);
-  if (dup) return res.status(409).json({ error: '이미 가입된 이메일이에요.' });
   fail(key);
-  await sendCode(res, email, 'signup');
+  const [dup] = await q('SELECT id FROM users WHERE email = ?', [email]);
+  await issueCode(res, email, dup ? () => mail.alreadyJoined() : (code) => mail.verifyCode(code, 'signup'));
 }));
 
-// 인증번호를 만들어 메일로 보낸다 (재발송 1분 간격). 가입용·비밀번호 변경용이 같은 표를 쓴다:
-// 가입용은 아직 없는 이메일에만, 비밀번호 변경용은 로그인한 회원 자신의 이메일에만 보내므로 섞이지 않는다.
-async function sendCode(res, email, kind) {
+// 인증번호를 만들어 저장하고 message(code) 메일을 보낸다 (재발송 1분 간격). message 가 없으면 보내지 않는다.
+// 가입 여부를 숨기려고, 인증번호를 보내지 않을 때도 아무도 모르는 번호를 저장한다
+// → 틀린 번호·만료·1분 쿨다운 응답이 가입된 이메일과 똑같고, 그 번호는 누구도 맞힐 수 없다.
+// 가입용·비밀번호 찾기·변경용이 같은 표를 쓰지만, 진짜 번호는 그 주소의 메일함에만 가므로 섞여도 안전하다.
+// wait=false: 메일 발송을 기다리지 않고 답한다 (보내는 경우와 안 보내는 경우의 응답 시간을 맞춘다)
+async function issueCode(res, email, message, { wait = true } = {}) {
   const [prev] = await q('SELECT sent_at > NOW() - INTERVAL 60 SECOND AS recent FROM email_codes WHERE email = ?', [email]);
   if (prev?.recent) return res.status(429).json({ error: '인증번호는 1분에 한 번만 보낼 수 있어요.' });
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   await q('REPLACE INTO email_codes (email, code_hash, expires_at) VALUES (?, ?, NOW() + INTERVAL 10 MINUTE)', [email, sha(code)]);
+  if (!message) return res.json({ ok: true });
+  const sending = mail.send({ to: email, ...message(code) });
+  if (!wait) {
+    sending.catch((e) => console.error('mail send failed', e));
+    return res.json({ ok: true });
+  }
   try {
-    await mail.send({ to: email, ...mail.verifyCode(code, kind) });
+    await sending;
   } catch (e) {
     console.error('mail send failed', e);
     await q('DELETE FROM email_codes WHERE email = ?', [email]);
@@ -186,12 +195,15 @@ app.post('/api/signup', wrap(async (req, res) => {
   }
 }));
 
+// 없는 이메일도 bcrypt 비교를 한 번 해서, 응답 시간으로 가입 여부가 드러나지 않게 한다
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
+
 app.post('/api/login', wrap(async (req, res) => {
   const key = req.ip;
   if (tooMany(key)) return res.status(429).json({ error: '시도가 너무 많아요. 잠시 후 다시 해주세요.' });
   const email = String(req.body.email || '').trim().toLowerCase();
   const [user] = await q('SELECT * FROM users WHERE email = ?', [email]);
-  if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash || ''))) {
+  if (!(await bcrypt.compare(String(req.body.password || ''), user?.password_hash || DUMMY_HASH)) || !user) {
     fail(key);
     return res.status(401).json({ error: '이메일 또는 비밀번호가 맞지 않아요.' });
   }
@@ -202,30 +214,28 @@ app.post('/api/login', wrap(async (req, res) => {
 }));
 
 // ── 비밀번호 찾기 (로그아웃 상태): 가입한 이메일로 받은 인증번호로 새 비밀번호를 정하고 바로 로그인 ──
-// 가입 화면이 이미 '이미 가입된 이메일'을 알려 주므로, 여기서도 가입 여부를 숨기지 않는다
+// 가입 여부는 알려 주지 않는다: 가입된(정지되지 않은) 이메일에만 인증번호를 보내고, 응답은 늘 같다
 app.post('/api/password/reset/code', wrap(async (req, res) => {
   const email = normEmail(req.body.email);
   if (!EMAIL_RE.test(email) || email.length > 190) return res.status(400).json({ error: '이메일 형식을 확인해주세요.' });
   if (!mail.enabled) return res.status(503).json({ error: `지금은 인증 메일을 보낼 수 없어요. ${mail.contact} 로 문의해주세요.` });
   const key = 'reset:' + req.ip;
   if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
-  const [user] = await q('SELECT banned FROM users WHERE email = ?', [email]);
-  if (!user) return res.status(404).json({ error: '가입되지 않은 이메일이에요. X로 가입했다면 X로 로그인해주세요.' });
-  if (user.banned) return res.status(403).json({ error: '이용이 정지된 계정이에요.' });
   fail(key);
-  await sendCode(res, email, 'reset');
+  const [user] = await q('SELECT banned FROM users WHERE email = ?', [email]);
+  await issueCode(res, email, user && !user.banned ? (code) => mail.verifyCode(code, 'reset') : null, { wait: false });
 }));
 
 app.post('/api/password/reset', wrap(async (req, res) => {
   const email = normEmail(req.body.email);
   const password = String(req.body.password || '');
   if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '새 비밀번호는 8~72자로 해주세요.' });
-  const [row] = await q('SELECT id, banned FROM users WHERE email = ?', [email]);
-  if (!row) return res.status(404).json({ error: '가입되지 않은 이메일이에요.' });
-  if (row.banned) return res.status(403).json({ error: '이용이 정지된 계정이에요.' });
+  // 인증번호부터 확인한다 → 맞히려면 그 메일함이 있어야 하므로, 그 전에는 가입 여부가 드러나지 않는다
   const bad = await checkCode(email, String(req.body.code || '').trim());
   if (bad) return res.status(400).json({ error: bad });
   await q('DELETE FROM email_codes WHERE email = ?', [email]);
+  const [row] = await q('SELECT id, banned FROM users WHERE email = ?', [email]);
+  if (!row || row.banned) return res.status(400).json({ error: '인증번호가 맞지 않아요.' });
   // 비밀번호가 새어 나갔을 수 있으니 다른 기기의 로그인은 모두 끊는다
   await q('UPDATE users SET password_hash = ?, session_ver = session_ver + 1 WHERE id = ?', [await bcrypt.hash(password, 10), row.id]);
   const user = await getUser(row.id);
@@ -443,7 +453,7 @@ app.post('/api/account/password/code', auth(), wrap(async (req, res) => {
   const key = 'pwmail:' + req.user.id; // 자기 이메일로만 보내므로 회원별로 센다
   if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
   fail(key);
-  await sendCode(res, req.user.email, 'password');
+  await issueCode(res, req.user.email, (code) => mail.verifyCode(code, 'password'));
 }));
 
 app.post('/api/account/password', auth(), wrap(async (req, res) => {
@@ -928,4 +938,4 @@ if (require.main === module) {
   }).catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { server, init, pool, store, mail };
+module.exports = { server, init, pool, store, mail, fails };

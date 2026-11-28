@@ -108,4 +108,24 @@ mail.verifyCode = (code, kind = 'signup') => {
   };
 };
 
+// 이미 가입된 이메일로 가입 인증번호를 요청했을 때 (가입 여부를 화면에 알리지 않는 대신 메일함 주인에게만 알린다)
+const SITE = 'https://yourloveour.design';
+mail.alreadyJoined = () => ({
+  subject: '[Love Design] 이미 가입된 이메일이에요',
+  text: `이 이메일로 가입한 Love Design 계정이 이미 있어서 인증번호를 보내지 않았어요.\n\n로그인: ${SITE}/login\n비밀번호가 기억나지 않으면: ${SITE}/reset\n\n본인이 요청하지 않았다면 이 메일을 무시하세요. 계정에는 아무 변화가 없어요.\n\n문의: ${CONTACT}`,
+  html: layout({
+    preheader: '이 이메일로 가입한 계정이 이미 있어요.',
+    body: `
+      <p style="margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:3px;color:${C.rose}">ALREADY A MEMBER</p>
+      <h1 style="margin:0 0 12px;font-size:24px;line-height:1.35;letter-spacing:-0.5px;font-weight:800;color:${C.ink}">이미 가입된 이메일이에요</h1>
+      <p style="margin:0 0 28px;font-size:15px;line-height:1.7;color:${C.muted}">이 이메일로 가입한 계정이 이미 있어서 인증번호를 보내지 않았어요. 새로 가입하지 않고 그대로 로그인하면 돼요.</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="background:${C.rose};border-radius:999px"><a href="${SITE}/login" style="display:inline-block;padding:13px 26px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none">로그인하기</a></td>
+      </tr></table>
+      <p style="margin:16px 0 0;font-size:14px;line-height:1.7;color:${C.muted}">비밀번호가 기억나지 않으면 <a href="${SITE}/reset" style="color:${C.rose};font-weight:700">비밀번호 찾기</a>에서 새로 정할 수 있어요.</p>
+      <hr style="border:0;border-top:1px solid ${C.line};margin:32px 0 20px">
+      <p style="margin:0;font-size:13px;line-height:1.7;color:${C.muted}">본인이 요청하지 않았다면 이 메일을 무시해주세요. 계정에는 아무 변화가 없어요.</p>`,
+  }),
+});
+
 module.exports = mail;
