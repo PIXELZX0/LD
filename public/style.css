@@ -355,3 +355,16 @@ dialog.sheet.wide { width: min(760px, calc(100% - 32px)); }
   .mail-row { grid-template-columns: 1fr auto; }
   .mail-subj { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* 고민 상담 안내(/counsel): 위기 연락처 카드 + 자주 묻는 질문 */
+.counsel section p { font-size: .97rem; }
+.card.crisis { border-color: var(--rose-soft); background: #fff7f8; margin-top: 4px; }
+.card.crisis h2 { margin: 0 0 6px; font-size: 1.05rem; color: var(--rose); }
+.crisis .lines { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
+.crisis .lines a { color: var(--ink); text-decoration: none; }
+.crisis .lines b { font-size: 1.05rem; font-weight: 800; margin-right: 4px; }
+.crisis .lines a:hover b { color: var(--rose); }
+.faq { display: grid; gap: 8px; }
+.faq details { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; }
+.faq summary { cursor: pointer; font-weight: 600; }
+.faq details p { margin: 10px 0 0; color: var(--muted); font-size: .95rem; }

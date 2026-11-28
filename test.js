@@ -77,8 +77,8 @@ function softPasskey(origin) {
 test('전체 흐름', async () => {
   const home = await (await fetch(base + '/')).text();
   assert.match(home, /당신에게 맞는<\/em> 사랑을 조각해드립니다/);
-  for (const t of ['익명으로 이용하기', '회원으로 이용하기', 'href="/guide"', 'href="/about"', 'href="/login"', 'href="/terms"', 'href="/privacy"']) assert.ok(home.includes(t), t);
-  for (const [page, t] of [['/terms', '이용약관'], ['/privacy', '국외 이전'], ['/signup', '개인정보 수집·이용 동의']])
+  for (const t of ['익명으로 이용하기', '회원으로 이용하기', 'href="/guide"', 'href="/about"', 'href="/login"', 'href="/terms"', 'href="/privacy"', 'href="/counsel"']) assert.ok(home.includes(t), t);
+  for (const [page, t] of [['/counsel', '자살예방상담전화'], ['/terms', '이용약관'], ['/privacy', '국외 이전'], ['/signup', '개인정보 수집·이용 동의']])
     assert.ok((await (await fetch(base + page)).text()).includes(t), page);
   assert.equal((await fetch(base + '/healthz')).status, 200);
 
