@@ -29,7 +29,7 @@ async function boot(need) {
   const link = (href, text) => el('a', { href, 'aria-current': here === href ? 'page' : false }, text);
   const nav = el('nav', { class: 'nav', 'aria-label': '주요 메뉴' });
   if (user) {
-    nav.append(el('span', { class: 'who-chip' }, user.nickname + (user.is_anonymous ? ' (익명)' : '') + '님'), link('/my', '내 상담'));
+    nav.append(el('span', { class: 'who-chip' }, user.nickname + (user.is_anonymous ? ' (익명)' : '') + '님'), link('/my', '내 상담'), link('/account', '내 정보'));
     if (user.role === 'counselor' || user.role === 'admin') nav.append(link('/counselor', '상담자'));
     if (user.role === 'admin') nav.append(link('/admin', '관리자'));
     nav.append(el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'));

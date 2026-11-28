@@ -1,6 +1,6 @@
 # LD — Love Design 고민상담
 
-Node + Express + socket.io + MySQL. 익명/회원 상담, 상담자 지원·승인, 관리자 페이지, 1:1 실시간 채팅.
+Node + Express + socket.io + MySQL. 익명/회원 상담, 상담자 지원·승인, 관리자 페이지, 1:1 실시간 채팅, 패스키 로그인.
 
 - `server.js` — API, 인증, 실시간 채팅
 - `mail.js` — SMTP 메일 발송 (회원가입 이메일 인증)
@@ -20,8 +20,13 @@ Node + Express + socket.io + MySQL. 익명/회원 상담, 상담자 지원·승�
 | `SMTP_SECURE` | `true`/`false` 로 SSL 강제 지정 (선택) |
 | `SMTP_USER` / `SMTP_PASS` | SMTP 계정 (Gmail은 앱 비밀번호) |
 | `SMTP_FROM` | 보내는 사람, 예: `Love Design <no-reply@example.com>` (기본 `SMTP_USER`) |
+| `WEBAUTHN_RP_ID` | 패스키 RP ID, 예: `example.com` (선택, 기본은 요청 호스트) |
+| `WEBAUTHN_ORIGIN` | 패스키 origin, 예: `https://example.com` (선택, 기본은 요청 프로토콜+호스트) |
 
 `SMTP_HOST` 가 없으면 개발 환경에선 인증번호를 콘솔에 출력하고, 운영(`NODE_ENV=production`)에선 회원가입이 막혀요.
+
+패스키: 회원이 `내 정보`(/account)에서 등록하고, 로그인 화면에서 이메일 없이 로그인해요 (`@simplewebauthn`).
+도메인을 바꾸면 기존 패스키는 쓸 수 없어요 (RP ID 가 도메인에 묶임). 운영은 HTTPS 필수.
 
 ## 배포
 Coolify: MySQL 리소스 생성 → 앱(`ld-web`)에 위 env 설정, 포트 3000.

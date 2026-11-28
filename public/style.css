@@ -154,6 +154,19 @@ main.chat { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column
 .inline input { flex: 1; min-width: 0; }
 .inline .btn { white-space: nowrap; min-height: 48px; }
 
+.btn.wide { width: 100%; }
+.or { display: flex; align-items: center; gap: 12px; margin: 20px 0 16px; color: var(--muted); font-size: .82rem; }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.err.ok { color: var(--ink); }
+.info { display: grid; grid-template-columns: max-content 1fr; gap: 10px 24px; margin: 0 0 20px; font-size: .95rem; }
+.info dt { color: var(--muted); }
+.info dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.card.row p { margin: 0; flex: 1 1 260px; }
+.passkeys { display: grid; gap: 10px; margin: 16px 0; }
+.passkeys:empty { display: none; }
+.passkeys .row { padding: 12px 0; border-top: 1px solid var(--line); }
+.passkeys .row:first-child { border-top: 0; padding-top: 0; }
+
 @media (max-width: 720px) {
   :root { --gutter: 18px; }
   .top-in { flex-wrap: wrap; padding-top: 10px; padding-bottom: 6px; gap: 4px 12px; }

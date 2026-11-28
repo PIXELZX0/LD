@@ -10,6 +10,8 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.1.0",
     "bcryptjs": "^3.0.3",
     "express": "^5.3.0",
     "express-mysql-session": "^3.0.3",

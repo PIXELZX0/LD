@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>내 정보 · Love Design</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♡</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js"></script>
+<script src="/vendor/webauthn.js"></script>
+</head>
+<body>
+<main class="wrap read">
+  <div class="page-head">
+    <h1>내 정보</h1>
+    <p class="sub">계정 정보와 로그인 방법을 관리해요.</p>
+  </div>
+
+  <section>
+    <h2>기본 정보</h2>
+    <div class="card">
+      <dl class="info" id="info"></dl>
+      <form id="nickForm" hidden>
+        <label>닉네임 <span class="muted">상담자에게 보이는 이름이에요.</span>
+          <span class="inline">
+            <input name="nickname" id="nick" maxlength="20" required>
+            <button class="btn">저장</button>
+          </span>
+        </label>
+        <p class="err" id="nickMsg"></p>
+      </form>
+    </div>
+  </section>
+
+  <section id="anonNote" hidden>
+    <div class="card soft">
+      <p>지금은 <b>익명</b>으로 이용 중이에요. 이 브라우저를 벗어나면 상담 기록을 다시 볼 수 없어요.</p>
+      <p><a href="/signup">회원가입</a>하면 닉네임·비밀번호·패스키를 설정하고 어디서든 기록을 볼 수 있어요.</p>
+    </div>
+  </section>
+
+  <div id="memberOnly" hidden>
+    <section>
+      <h2>비밀번호 변경</h2>
+      <div class="card">
+        <form id="pwForm">
+          <input type="text" name="username" id="pwUser" autocomplete="username" hidden>
+          <label>현재 비밀번호 <input name="current" type="password" required autocomplete="current-password"></label>
+          <label>새 비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+          <label>새 비밀번호 확인 <input name="confirm" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+          <p class="err" id="pwMsg"></p>
+          <button class="btn">비밀번호 바꾸기</button>
+        </form>
+        <p class="muted">바꾸면 다른 기기에서는 모두 로그아웃돼요.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>패스키 <span class="count" id="pkCount">0</span></h2>
+      <div class="card">
+        <p class="muted">비밀번호 대신 지문·얼굴·화면 잠금으로 로그인해요. 이 기기나 휴대폰에 패스키를 등록해두세요.</p>
+        <div class="passkeys" id="pkList"></div>
+        <p class="err" id="pkErr"></p>
+        <button type="button" class="btn" id="pkAdd">패스키 추가</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>로그인 기기</h2>
+      <div class="card row">
+        <p class="muted">공용 컴퓨터에서 로그아웃을 잊었다면, 지금 이 기기만 남기고 모두 로그아웃할 수 있어요.</p>
+        <button type="button" class="btn" id="others">다른 기기 모두 로그아웃</button>
+      </div>
+      <p class="err" id="othersMsg"></p>
+    </section>
+  </div>
+</main>
+<script>
+const ok = (node, text) => { node.textContent = text; node.classList.add('ok'); };
+const bad = (node, text) => { node.textContent = text; node.classList.remove('ok'); };
+
+boot(true).then(async () => {
+  const { user } = await api('/api/account');
+  const row = (k, v) => [el('dt', {}, k), el('dd', {}, v)];
+  info.replaceChildren(
+    ...(user.is_anonymous ? [...row('닉네임', user.nickname), ...row('계정', '익명')] : row('이메일', user.email)),
+    ...row('역할', ROLE[user.role]),
+    ...row('가입일', fmt(user.created_at).slice(0, 10)));
+  if (user.is_anonymous) { anonNote.hidden = false; return; }
+  nickForm.hidden = false;
+  nick.value = user.nickname;
+  pwUser.value = user.email;
+  memberOnly.hidden = false;
+  loadPasskeys();
+});
+
+nickForm.onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const { user } = await api('/api/account/nickname', { nickname: nick.value });
+    document.querySelector('.who-chip').textContent = user.nickname + '님';
+    ok(nickMsg, '닉네임을 바꿨어요.');
+  } catch (x) { bad(nickMsg, x.message); }
+};
+
+pwForm.onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(pwForm));
+  if (d.password !== d.confirm) return bad(pwMsg, '새 비밀번호가 서로 달라요.');
+  try {
+    await api('/api/account/password', { current: d.current, password: d.password });
+    pwForm.reset();
+    ok(pwMsg, '비밀번호를 바꿨어요. 다른 기기에서는 로그아웃됐어요.');
+  } catch (x) { bad(pwMsg, x.message); }
+};
+
+others.onclick = async () => {
+  if (!confirm('이 기기를 뺀 나머지 기기에서 모두 로그아웃할까요?')) return;
+  try { await api('/api/account/logout-others', {}); ok(othersMsg, '다른 기기에서 모두 로그아웃했어요.'); }
+  catch (x) { bad(othersMsg, x.message); }
+};
+
+async function loadPasskeys() {
+  const rows = await api('/api/passkeys');
+  pkCount.textContent = rows.length;
+  pkList.replaceChildren(...rows.map((p) => el('div', { class: 'row' },
+    el('div', {}, el('b', {}, p.name), el('div', { class: 'muted' },
+      `${fmt(p.created_at)} 등록 · ${p.last_used_at ? fmt(p.last_used_at) + ' 마지막 사용' : '아직 안 씀'}`)),
+    el('button', { type: 'button', class: 'btn sm', onclick: async () => {
+      if (!confirm(`‘${p.name}’ 패스키를 삭제할까요? 이 패스키로는 더 이상 로그인할 수 없어요.`)) return;
+      try { await api('/api/passkeys/delete', { id: p.id }); loadPasskeys(); } catch (x) { pkErr.textContent = x.message; }
+    } }, '삭제'))));
+}
+if (!SimpleWebAuthnBrowser.browserSupportsWebAuthn()) {
+  pkAdd.disabled = true;
+  pkErr.textContent = '이 브라우저는 패스키를 지원하지 않아요.';
+}
+pkAdd.onclick = async () => {
+  pkErr.textContent = '';
+  pkAdd.disabled = true;
+  try {
+    const optionsJSON = await api('/api/passkey/register/options', {});
+    const response = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON });
+    await api('/api/passkey/register/verify', { response });
+    await loadPasskeys();
+  } catch (x) {
+    if (x.name === 'InvalidStateError') pkErr.textContent = '이 기기에는 이미 패스키가 등록돼 있어요.';
+    else if (x.name !== 'NotAllowedError') pkErr.textContent = x.code ? '이 기기에서는 패스키를 만들 수 없어요.' : x.message;
+  }
+  pkAdd.disabled = false;
+};
+</script>
+</body>
+</html>

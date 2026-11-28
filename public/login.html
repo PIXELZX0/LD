@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="/style.css">
 <script src="/app.js"></script>
+<script src="/vendor/webauthn.js"></script>
 </head>
 <body>
 <main class="wrap narrow">
@@ -17,24 +18,58 @@
     <p class="sub">로그인하면 상담 기록을 언제든 다시 볼 수 있어요.</p>
   </div>
   <form id="f">
-    <label>이메일 <input name="email" type="email" required autocomplete="email"></label>
+    <label>이메일 <input name="email" type="email" required autocomplete="username webauthn"></label>
     <label>비밀번호 <input name="password" type="password" required autocomplete="current-password"></label>
     <p class="err" id="err"></p>
     <button class="btn primary">로그인</button>
   </form>
+  <div id="pk" hidden>
+    <p class="or"><span>또는</span></p>
+    <button type="button" class="btn wide" id="pkBtn">패스키로 로그인</button>
+  </div>
   <p class="muted panel-foot">처음이신가요? <a href="/signup">회원가입</a> · 가입 없이 <a href="/">익명으로 이용하기</a></p>
  </div>
 </main>
 <script>
 boot().then(({ user }) => { if (user && !user.is_anonymous) location.href = '/my'; });
+const pkMsg = (x) => (x.code ? '패스키를 사용할 수 없어요. 비밀번호로 로그인해주세요.' : x.message);
+const done = () => {
+  const next = new URLSearchParams(location.search).get('next');
+  location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/my';
+};
 f.onsubmit = async (e) => {
   e.preventDefault();
-  try {
-    await api('/api/login', Object.fromEntries(new FormData(f)));
-    const next = new URLSearchParams(location.search).get('next');
-    location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/my';
-  } catch (x) { err.textContent = x.message; }
+  try { await api('/api/login', Object.fromEntries(new FormData(f))); done(); }
+  catch (x) { err.textContent = x.message; }
 };
+
+// 패스키: 버튼으로, 또는 이메일 칸 자동완성 목록에서 고르기 (conditional UI)
+const { startAuthentication, browserSupportsWebAuthn, browserSupportsWebAuthnAutofill } = SimpleWebAuthnBrowser;
+async function passkey(autofill) {
+  const optionsJSON = await api('/api/passkey/login/options', {});
+  const response = await startAuthentication({ optionsJSON, useBrowserAutofill: autofill });
+  await api('/api/passkey/login/verify', { response });
+  done();
+}
+async function autofill() {
+  if (!(await browserSupportsWebAuthnAutofill())) return;
+  try { await passkey(true); }
+  catch (x) { if (x.name !== 'AbortError' && x.name !== 'NotAllowedError') err.textContent = pkMsg(x); }
+}
+if (browserSupportsWebAuthn()) {
+  window.pk.hidden = false;
+  autofill();
+  pkBtn.onclick = async () => {
+    err.textContent = '';
+    pkBtn.disabled = true;
+    try { await passkey(false); }
+    catch (x) {
+      if (x.name !== 'NotAllowedError') err.textContent = pkMsg(x);
+      pkBtn.disabled = false;
+      autofill();
+    }
+  };
+}
 </script>
 </body>
 </html>

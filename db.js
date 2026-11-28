@@ -9,6 +9,10 @@ const pool = mysql.createPool({ uri: url, charset: 'utf8mb4', dateStrings: true,
 async function init() {
   const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   for (const stmt of sql.split(';').map(s => s.trim()).filter(Boolean)) await pool.query(stmt);
+  // 기존 DB 마이그레이션: CREATE TABLE IF NOT EXISTS 는 컬럼을 추가해주지 않는다
+  const [[col]] = await pool.query(
+    "SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'session_ver'");
+  if (!col.n) await pool.query('ALTER TABLE users ADD COLUMN session_ver INT NOT NULL DEFAULT 0');
 
   const { ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
   if (ADMIN_EMAIL && ADMIN_PASSWORD) {

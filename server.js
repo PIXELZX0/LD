@@ -6,6 +6,7 @@ const session = require('express-session');
 const MySQLStore = require('express-mysql-session')(session);
 const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
+const webauthn = require('@simplewebauthn/server');
 const { pool, init, url } = require('./db');
 const mail = require('./mail');
 
@@ -22,8 +23,9 @@ const store = new MySQLStore({
   user: decodeURIComponent(u.username), password: decodeURIComponent(u.password),
   database: u.pathname.slice(1),
 });
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 const sessionMw = session({
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
+  secret: SESSION_SECRET,
   store, resave: false, saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 1000 * 60 * 60 * 24 * 30 },
 });
@@ -38,9 +40,16 @@ async function getUser(id) {
   return user && !user.banned ? user : null;
 }
 
+// 세션의 버전이 회원의 session_ver 와 다르면 (비밀번호 변경·다른 기기 로그아웃) 무효
+const sessionOk = (user, sess) => !!user && (sess?.ver ?? 0) === user.session_ver;
+async function sessionUser(sess) {
+  const user = await getUser(sess?.userId);
+  return sessionOk(user, sess) ? user : null;
+}
+
 // 매 요청마다 DB에서 다시 읽는다 → 역할 변경·정지가 즉시 반영된다
 app.use(async (req, res, next) => {
-  try { req.user = await getUser(req.session.userId); next(); } catch (e) { next(e); }
+  try { req.user = await sessionUser(req.session); next(); } catch (e) { next(e); }
 });
 
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
@@ -64,6 +73,7 @@ function login(req, user) {
     req.session.regenerate((err) => {
       if (err) return reject(err);
       req.session.userId = user.id;
+      req.session.ver = user.session_ver;
       req.session.save((e) => (e ? reject(e) : resolve()));
     }));
 }
@@ -174,6 +184,155 @@ app.post('/api/login', wrap(async (req, res) => {
 }));
 
 app.post('/api/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
+
+// ── 내 정보 ──
+app.get('/api/account', auth(), (req, res) => {
+  res.json({ user: { ...pub(req.user), created_at: req.user.created_at } });
+});
+
+app.post('/api/account/nickname', auth(), wrap(async (req, res) => {
+  if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 닉네임을 바꿀 수 있어요.' });
+  const nickname = String(req.body.nickname || '').trim();
+  if (nickname.length < 1 || nickname.length > 20) return res.status(400).json({ error: '닉네임은 1~20자로 해주세요.' });
+  await q('UPDATE users SET nickname = ? WHERE id = ?', [nickname, req.user.id]);
+  res.json({ user: pub({ ...req.user, nickname }) });
+}));
+
+// 다른 기기의 세션은 session_ver 를 올려 끊고, 지금 세션만 새 버전으로 다시 로그인
+async function bumpSessions(req) {
+  await q('UPDATE users SET session_ver = session_ver + 1 WHERE id = ?', [req.user.id]);
+  await login(req, await getUser(req.user.id));
+}
+
+app.post('/api/account/password', auth(), wrap(async (req, res) => {
+  if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 비밀번호를 바꿀 수 있어요.' });
+  const key = 'pw:' + req.user.id;
+  if (tooMany(key)) return res.status(429).json({ error: '시도가 너무 많아요. 잠시 후 다시 해주세요.' });
+  const password = String(req.body.password || '');
+  if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '새 비밀번호는 8~72자로 해주세요.' });
+  if (!(await bcrypt.compare(String(req.body.current || ''), req.user.password_hash || ''))) {
+    fail(key);
+    return res.status(400).json({ error: '현재 비밀번호가 맞지 않아요.' });
+  }
+  fails.delete(key);
+  await q('UPDATE users SET password_hash = ? WHERE id = ?', [await bcrypt.hash(password, 10), req.user.id]);
+  await bumpSessions(req);
+  res.json({ ok: true });
+}));
+
+app.post('/api/account/logout-others', auth(), wrap(async (req, res) => {
+  await bumpSessions(req);
+  res.json({ ok: true });
+}));
+
+// ── 패스키 (WebAuthn) ──
+// RP ID·origin 은 요청 호스트에서 정한다 (trust proxy 로 X-Forwarded-* 반영). 고정하려면 env 로.
+const rp = (req) => ({
+  rpID: process.env.WEBAUTHN_RP_ID || req.hostname,
+  origin: process.env.WEBAUTHN_ORIGIN || `${req.protocol}://${req.get('host')}`,
+});
+// 인증기에 저장되는 사용자 핸들: 회원 id 를 그대로 노출하지 않으면서 회원마다 고정된 값
+const userHandle = (id) => crypto.createHmac('sha256', SESSION_SECRET).update('passkey:' + id).digest();
+const b64url = (buf) => Buffer.from(buf).toString('base64url');
+// 챌린지는 한 번만 쓸 수 있게 꺼내면서 지운다 (5분 유효)
+function takeChallenge(req, kind) {
+  const c = req.session.webauthn;
+  delete req.session.webauthn;
+  return c && c.kind === kind && c.exp > Date.now() ? c.challenge : null;
+}
+const keepChallenge = (req, kind, challenge) => { req.session.webauthn = { kind, challenge, exp: Date.now() + 5 * 60 * 1000 }; };
+const member = (req, res, next) => (req.user?.is_anonymous ? res.status(403).json({ error: '회원만 패스키를 쓸 수 있어요.' }) : next());
+
+app.post('/api/passkey/register/options', auth(), member, wrap(async (req, res) => {
+  const mine = await q('SELECT id, transports FROM passkeys WHERE user_id = ?', [req.user.id]);
+  if (mine.length >= 10) return res.status(400).json({ error: '패스키는 10개까지 등록할 수 있어요.' });
+  const options = await webauthn.generateRegistrationOptions({
+    rpName: 'Love Design',
+    rpID: rp(req).rpID,
+    userID: userHandle(req.user.id),
+    userName: req.user.email,
+    userDisplayName: req.user.nickname,
+    attestationType: 'none',
+    excludeCredentials: mine.map((p) => ({ id: p.id, transports: p.transports ? p.transports.split(',') : undefined })),
+    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+  });
+  keepChallenge(req, 'register', options.challenge);
+  res.json(options);
+}));
+
+app.post('/api/passkey/register/verify', auth(), member, wrap(async (req, res) => {
+  const expectedChallenge = takeChallenge(req, 'register');
+  if (!expectedChallenge) return res.status(400).json({ error: '시간이 지났어요. 다시 시도해주세요.' });
+  const { rpID, origin } = rp(req);
+  let v;
+  try {
+    v = await webauthn.verifyRegistrationResponse({
+      response: req.body.response, expectedChallenge, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: true,
+    });
+  } catch (e) {
+    console.warn('passkey register verify failed', e.message);
+  }
+  if (!v?.verified) return res.status(400).json({ error: '패스키를 확인하지 못했어요.' });
+  const { credential, passkeyProviderMetadata } = v.registrationInfo;
+  const name = String(req.body.name || passkeyProviderMetadata?.name || '패스키').trim().slice(0, 60) || '패스키';
+  try {
+    await q('INSERT INTO passkeys (id, user_id, public_key, counter, transports, name) VALUES (?, ?, ?, ?, ?, ?)',
+      [credential.id, req.user.id, Buffer.from(credential.publicKey), credential.counter, credential.transports?.join(',') || null, name]);
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: '이미 등록된 패스키예요.' });
+    throw e;
+  }
+  res.json({ ok: true });
+}));
+
+app.get('/api/passkeys', auth(), member, wrap(async (req, res) => {
+  res.json(await q('SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at', [req.user.id]));
+}));
+
+app.post('/api/passkeys/delete', auth(), member, wrap(async (req, res) => {
+  const r = await q('DELETE FROM passkeys WHERE id = ? AND user_id = ?', [String(req.body.id || ''), req.user.id]);
+  if (!r.affectedRows) return res.status(404).json({ error: '없는 패스키예요.' });
+  res.json({ ok: true });
+}));
+
+// 아이디 입력 없이 로그인 (discoverable credential) → allowCredentials 를 비워 둔다
+app.post('/api/passkey/login/options', wrap(async (req, res) => {
+  const options = await webauthn.generateAuthenticationOptions({ rpID: rp(req).rpID, userVerification: 'required' });
+  keepChallenge(req, 'login', options.challenge);
+  res.json(options);
+}));
+
+app.post('/api/passkey/login/verify', wrap(async (req, res) => {
+  const key = req.ip;
+  if (tooMany(key)) return res.status(429).json({ error: '시도가 너무 많아요. 잠시 후 다시 해주세요.' });
+  const expectedChallenge = takeChallenge(req, 'login');
+  if (!expectedChallenge) return res.status(400).json({ error: '시간이 지났어요. 다시 시도해주세요.' });
+  const response = req.body.response;
+  const [pk] = await q('SELECT * FROM passkeys WHERE id = ?', [String(response?.id || '')]);
+  const denied = () => { fail(key); return res.status(401).json({ error: '등록되지 않은 패스키예요. 비밀번호로 로그인한 뒤 내 정보에서 등록해주세요.' }); };
+  if (!pk) return denied();
+  if (response.response?.userHandle && response.response.userHandle !== b64url(userHandle(pk.user_id))) return denied();
+  const { rpID, origin } = rp(req);
+  let v;
+  try {
+    v = await webauthn.verifyAuthenticationResponse({
+      response, expectedChallenge, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: true,
+      credential: { id: pk.id, publicKey: new Uint8Array(pk.public_key), counter: Number(pk.counter), transports: pk.transports?.split(',') },
+    });
+  } catch (e) {
+    console.warn('passkey login verify failed', e.message);
+  }
+  if (!v?.verified) return denied();
+  const user = await getUser(pk.user_id);
+  if (!user) return res.status(403).json({ error: '이용이 정지된 계정이에요.' });
+  await q('UPDATE passkeys SET counter = ?, last_used_at = NOW() WHERE id = ?', [v.authenticationInfo.newCounter, pk.id]);
+  fails.delete(key);
+  await login(req, user);
+  res.json({ user: pub(user) });
+}));
+
+app.get('/vendor/webauthn.js', (req, res) =>
+  res.sendFile(path.join(__dirname, 'node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js'), { maxAge: '7d' }));
 
 // ── 상담 ──
 app.post('/api/consultations', auth(), wrap(async (req, res) => {
@@ -292,8 +451,8 @@ const io = new Server(server);
 io.engine.use(sessionMw);
 
 io.on('connection', async (socket) => {
-  const uid = socket.request.session?.userId;
-  const me = await getUser(uid).catch(() => null);
+  const sess = socket.request.session;
+  const me = await sessionUser(sess).catch(() => null);
   if (!me) return socket.disconnect(true);
   if (isStaff(me)) socket.join('counselors');
 
@@ -305,7 +464,8 @@ io.on('connection', async (socket) => {
 
   socket.on('send', async ({ id, body } = {}, ack) => {
     try {
-      const user = await getUser(me.id); // 정지 여부 재확인
+      const u = await getUser(me.id); // 정지·로그아웃 여부 재확인
+      const user = sessionOk(u, sess) ? u : null;
       const text = String(body || '').trim();
       const c = user && await access(user, id);
       if (!c || c.status !== 'active' || (c.client_id !== user.id && c.counselor_id !== user.id))
