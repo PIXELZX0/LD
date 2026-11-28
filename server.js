@@ -122,16 +122,7 @@ app.post('/api/email/code', wrap(async (req, res) => {
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   await q('REPLACE INTO email_codes (email, code_hash, expires_at) VALUES (?, ?, NOW() + INTERVAL 10 MINUTE)', [email, sha(code)]);
   try {
-    await mail.send({
-      to: email,
-      subject: `[Love Design] 인증번호 ${code}`,
-      text: `Love Design 회원가입 인증번호는 ${code} 입니다.\n10분 안에 입력해주세요.\n\n본인이 요청하지 않았다면 이 메일을 무시하세요.`,
-      html: `<div style="font-family:sans-serif;max-width:420px;margin:auto;padding:24px">
-        <p style="font-size:20px;font-weight:800;margin:0 0 16px">LD♡ Love Design</p>
-        <p>회원가입 인증번호예요. 10분 안에 입력해주세요.</p>
-        <p style="font-size:32px;font-weight:800;letter-spacing:8px;margin:24px 0">${code}</p>
-        <p style="color:#888;font-size:13px">본인이 요청하지 않았다면 이 메일을 무시하세요.</p></div>`,
-    });
+    await mail.send({ to: email, ...mail.verifyCode(code) });
   } catch (e) {
     console.error('mail send failed', e);
     await q('DELETE FROM email_codes WHERE email = ?', [email]);
