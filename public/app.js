@@ -130,7 +130,7 @@ function xResult() {
 }
 // X 로 시작하는 링크 버튼 (서버가 X 동의 화면으로 넘긴다)
 function xButton(text, href) {
-  const a = el('a', { class: 'btn wide x', href });
+  const a = el('a', { class: 'btn wide btn-x', href });
   a.insertAdjacentHTML('afterbegin', X_ICON); // 고정된 아이콘 문자열만 넣는다
   a.append(text);
   return a;

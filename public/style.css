@@ -188,9 +188,9 @@ main.chat { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column
 .inline .btn { white-space: nowrap; min-height: 48px; }
 
 .btn.wide { width: 100%; }
-.btn.x { background: #000; border-color: #000; color: #fff; gap: 8px; }
-.btn.x:hover { background: #26262b; border-color: #26262b; }
-.btn.x svg { flex: none; }
+.btn-x { background: #000; border-color: #000; color: #fff; gap: 8px; }
+.btn-x:hover { background: #26262b; border-color: #26262b; }
+.btn-x svg { flex: none; }
 .alt-login { display: grid; gap: 10px; }
 .x-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .x-link > :first-child { flex: 1 1 240px; min-width: 0; margin: 0; }
@@ -252,6 +252,7 @@ dialog.sheet form { padding: 24px; gap: 12px; }
 dialog.sheet h2 { margin: 0; }
 dialog.sheet .row { flex-wrap: nowrap; }
 dialog.sheet p.muted { margin: 0; }
+dialog.sheet .pw-way { display: grid; gap: 8px; }
 dialog.sheet textarea { min-height: 220px; }
 .x { border: 0; background: var(--tint); width: 36px; height: 36px; border-radius: 999px; font-size: 1.2rem; line-height: 1; cursor: pointer; color: var(--muted); flex: none; }
 .x:hover { color: var(--ink); }
