@@ -20,6 +20,8 @@
 <meta name="theme-color" content="#e14b62">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Love Design">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="/style.css">
 <script src="/app.js"></script>
@@ -63,7 +65,6 @@
     <button class="btn primary">후기 저장</button>
   </form>
 </dialog>
-<script src="/socket.io/socket.io.js"></script>
 <script>
 const id = Number(new URLSearchParams(location.search).get('id'));
 let me, c, note, review, canNote;
@@ -103,9 +104,13 @@ boot(true).then(async ({ user }) => {
   if (me.id !== c.client_id && (me.role === 'counselor' || me.role === 'admin')) { back.href = '/counselor'; back.textContent = '← 상담사'; }
   if (c.status === 'closed') closedNotice();
   if (canNote && new URLSearchParams(location.search).has('note')) openNote();
-  const s = io();
-  s.on('connect', () => s.emit('join', id));
+  const s = await liveSocket();
+  const join = () => s.emit('join', id);
+  s.on('connect', join); if (s.connected) join();
   s.on('msg', add);
+  // 다른 화면을 보는 동안 온 메시지는 알림으로 남는다 → 돌아와서 채팅을 보면 읽음
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) readNote({ consultation: id }); });
+  if (c.status === 'waiting' && me.id === c.client_id) waitingTip();
   s.on('status', ({ status, counselor }) => {
     c.status = status; if (counselor) c.counselor_name = counselor;
     render();
@@ -129,6 +134,15 @@ boot(true).then(async ({ user }) => {
   reviewBtn.onclick = openReview;
   endBtn.onclick = async () => { if (confirm('상담을 종료할까요?')) await api(`/api/consultations/${id}/close`, {}).catch((x) => alert(x.message)); };
 });
+
+// 상담사를 기다리는 동안: 알림을 아직 안 켰으면 켜는 곳을 알려 준다
+function waitingTip() {
+  const tip = el('div', { class: 'notice ask' }, '상담사가 맡으면 알려 드릴 수 있어요. ',
+    el('button', { type: 'button', class: 'linkish', onclick: openNotes }, '알림 켜기'));
+  const show = () => { tip.style.display = deviceNotesOn() || c.status !== 'waiting' ? 'none' : ''; };
+  document.addEventListener('notes', show);
+  show(); msgs.append(tip);
+}
 
 function closedNotice(text = '종료된 상담이에요.') {
   const ask = me.id === c.client_id && c.counselor_name && !review;

@@ -322,6 +322,8 @@ label.check.all { font-weight: 700; font-size: .95rem; padding: 12px 0; border-b
 .legal tbody th { width: 1%; border-bottom: 1px solid var(--line); }
 .legal tbody tr:last-child th { border-bottom: 0; }
 .legal :target { scroll-margin-top: 96px; }
+.legal-note { padding: 12px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-ink); }
+.legal-note a { color: inherit; font-weight: 600; }
 @media (max-width: 720px) { .agree-body { margin-left: 0; } }
 
 /* 관리자 문의 메일함 */

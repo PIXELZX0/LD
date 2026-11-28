@@ -20,6 +20,8 @@
 <meta name="theme-color" content="#e14b62">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Love Design">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="/style.css">
 <script src="/app.js"></script>
@@ -40,7 +42,6 @@
     <div class="list" id="mine"></div>
   </section>
 </main>
-<script src="/socket.io/socket.io.js"></script>
 <script>
 let me;
 async function load() {
@@ -59,7 +60,7 @@ async function load() {
     el('div', { class: 'row' }, el('b', {}, c.title), statusTag(c.status)),
     el('div', { class: 'muted' }, `${c.category} · ${c.client_name} · ${fmt(c.created_at)}`))) : [el('p', { class: 'empty' }, '맡은 상담이 없어요.')]));
 }
-boot(['counselor', 'admin']).then(({ user }) => { me = user; load(); io().on('queue', load); });
+boot(['counselor', 'admin']).then(({ user }) => { me = user; load(); liveSocket().then((s) => s.on('queue', load)); });
 </script>
 </body>
 </html>

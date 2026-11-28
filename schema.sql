@@ -126,3 +126,38 @@ CREATE TABLE IF NOT EXISTS social_accounts (
   UNIQUE KEY user_provider (user_id, provider),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) DEFAULT CHARSET=utf8mb4;
+
+-- 알림 (상단바 종): 받는 사람마다 1줄. 글은 kind 로 화면에 그릴 때 만든다 (상담 제목은 consultations 에서)
+-- actor 는 글에 넣을 이름 — 익명 상담이면 상담사에게 가는 알림엔 이미 '익명'으로 넣는다
+-- 같은 상담의 읽지 않은 새 메시지 알림은 1줄로 묶어 n 을 올린다
+-- 읽은 지 30일, 받은 지 90일 지난 알림은 서버가 지운다
+CREATE TABLE IF NOT EXISTS notifications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  kind VARCHAR(20) CHARACTER SET ascii NOT NULL,
+  consultation_id INT NULL,
+  actor VARCHAR(40) NULL,
+  n INT NOT NULL DEFAULT 1,
+  read_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
+  INDEX (user_id, read_at),
+  INDEX (updated_at)
+) DEFAULT CHARSET=utf8mb4;
+
+-- 웹 푸시 구독: 브라우저(기기)마다 1줄, 주소(endpoint)는 길어서 해시로 찾는다
+-- session_ver 는 구독할 때의 로그인 버전 — 비밀번호 변경·다른 기기 로그아웃 뒤엔 그 기기로 보내지 않는다 (다시 로그인하면 새로 맞춘다)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint_hash CHAR(64) CHARACTER SET ascii PRIMARY KEY,
+  user_id INT NOT NULL,
+  endpoint VARCHAR(1000) CHARACTER SET ascii NOT NULL,
+  p256dh VARCHAR(100) CHARACTER SET ascii NOT NULL,
+  auth VARCHAR(40) CHARACTER SET ascii NOT NULL,
+  session_ver INT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX (user_id)
+) DEFAULT CHARSET=utf8mb4;

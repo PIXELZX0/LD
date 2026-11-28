@@ -11,13 +11,14 @@ const { pool, init, url } = require('./db');
 const mail = require('./mail');
 const inbox = require('./inbox');
 const xauth = require('./xauth');
+const push = require('./push');
 
 const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직장', '건강', '기타'];
 const MAX_MSG = 2000;
 const MAX_NOTE = 5000;
 const MAX_REVIEW = 1000;
 // 약관·개인정보처리방침 시행일 — 문서를 바꾸면 함께 올려서 회원이 어느 판에 동의했는지 남긴다
-const TERMS_VER = '2026-11-28';
+const TERMS_VER = '2026-12-06'; // 개인정보처리방침: 알림·기기 알림(웹 푸시) 추가
 const MAX_AVATAR = 512 * 1024; // 브라우저에서 줄여 보내므로 보통 수십 KB
 
 const app = express();
@@ -630,6 +631,143 @@ app.post('/api/passkey/login/verify', wrap(async (req, res) => {
 app.get('/vendor/webauthn.js', (req, res) =>
   res.sendFile(path.join(__dirname, 'node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js'), { maxAge: '7d' }));
 
+// ── 알림 (상단바 종) ──
+// 남기는 곳: 새 상담 요청(상담사·관리자), 상담사 배정(내담자), 새 메시지(상대방, 그 상담 화면을 열어 두지 않았을 때),
+// 상담 종료(상대방), 상담사 지원(관리자), 지원 결과(지원자). 열린 화면에는 소켓 방 u:회원번호 로 바로 알린다.
+const NOTE_LIMIT = 30;
+const NOTE_SELECT = `SELECT n.id, n.user_id, n.kind, n.consultation_id, n.actor, n.n, n.read_at, n.updated_at,
+    TIMESTAMPDIFF(SECOND, n.updated_at, NOW()) AS age, c.title, c.category, c.client_id, c.counselor_id
+  FROM notifications n LEFT JOIN consultations c ON c.id = n.consultation_id`;
+function noteText(x) {
+  const t = `‘${x.title}’`;
+  switch (x.kind) {
+    case 'new_case': return `새 상담 요청이 들어왔어요 · ${t} (${x.category})`;
+    case 'accepted': return `${x.actor} 상담사가 ${t} 상담을 맡았어요. 지금 대화를 시작해 보세요.`;
+    case 'message': return `${x.actor}님이 ${t} 상담에 메시지를 보냈어요${x.n > 1 ? ` (${x.n}개)` : ''}`;
+    case 'closed': return `${t} 상담이 종료됐어요.${x.user_id === x.client_id && x.counselor_id ? ' 상담은 어떠셨나요? 후기를 남겨 주세요.' : ''}`;
+    case 'app_new': return `${x.actor}님이 상담사로 지원했어요. 지원서를 확인해 주세요.`;
+    case 'app_approved': return '상담사 지원이 승인됐어요. 이제 대기 중인 상담을 맡을 수 있어요.';
+    case 'app_rejected': return '상담사 지원이 반려됐어요.';
+    default: return '새 알림이 있어요.';
+  }
+}
+const NOTE_LINK = { app_new: '/admin', app_approved: '/counselor', app_rejected: '/my' };
+// 기기 알림(푸시·브라우저 알림) 문구: 잠금화면·화면 공유로 남에게 보일 수 있어서 상담 제목·이름은 넣지 않는다
+const NOTE_BRIEF = {
+  new_case: '새 상담 요청이 들어왔어요.', accepted: '상담사가 상담을 맡았어요.', message: '새 메시지가 왔어요.', closed: '상담이 종료됐어요.',
+  app_new: '새 상담사 지원서가 있어요.', app_approved: '상담사 지원이 승인됐어요.', app_rejected: '상담사 지원 결과가 나왔어요.',
+};
+const noteOut = (x) => ({
+  id: x.id, kind: x.kind, text: noteText(x), brief: NOTE_BRIEF[x.kind] || '새 알림이 있어요.',
+  link: x.consultation_id ? `/chat?id=${x.consultation_id}` : (NOTE_LINK[x.kind] || '/my'),
+  n: x.n, read: !!x.read_at, at: x.updated_at, age: Number(x.age) || 0,
+});
+
+// 알림을 남기고 그 회원의 열린 화면에 바로 보낸다. 알림이 실패해도 원래 동작(수락·전송 등)은 막지 않는다
+// 새 메시지는 읽지 않은 알림이 있으면 새로 만들지 않고 개수(n)만 올린다
+async function notify(userIds, kind, { cid = null, actor = null } = {}) {
+  for (const uid of new Set(userIds.filter(Boolean))) {
+    try {
+      let id;
+      if (kind === 'message') {
+        const r = await q("UPDATE notifications SET n = n + 1, actor = ?, updated_at = NOW() WHERE user_id = ? AND kind = 'message' AND consultation_id = ? AND read_at IS NULL",
+          [actor, uid, cid]);
+        if (r.affectedRows) [{ id }] = await q("SELECT id FROM notifications WHERE user_id = ? AND kind = 'message' AND consultation_id = ? AND read_at IS NULL", [uid, cid]);
+      }
+      if (!id) id = (await q('INSERT INTO notifications (user_id, kind, consultation_id, actor) VALUES (?, ?, ?, ?)', [uid, kind, cid, actor])).insertId;
+      const [row] = await q(`${NOTE_SELECT} WHERE n.id = ?`, [id]);
+      if (!row) continue;
+      const out = noteOut(row);
+      io.to('u:' + uid).emit('notify', out);
+      // 이 회원이 지금 사이트를 보고 있지 않을 때만 기기로 푸시 (보고 있으면 종 알림으로 충분)
+      if (push.enabled && !(await looking(uid))) pushTo(uid, out); // 푸시 서비스 응답은 기다리지 않는다
+    } catch (e) { console.error('notify failed', e); }
+  }
+}
+// 화면이 보이는(다른 탭·창을 내려 두지 않은) 페이지: 클라이언트가 소켓으로 'visible' 을 알려 준다
+const looking = async (uid) => (await io.in('u:' + uid).fetchSockets()).some((s) => s.data.visible);
+function pushTo(uid, item) {
+  (async () => {
+    const subs = await q(`SELECT s.* FROM push_subscriptions s JOIN users u ON u.id = s.user_id
+      WHERE s.user_id = ? AND u.banned = 0 AND s.session_ver = u.session_ver`, [uid]);
+    await Promise.all(subs.map(async (s) => {
+      try {
+        await push.send({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+          { title: 'Love Design', body: item.brief, link: item.link, tag: 'ld-' + item.id });
+      } catch (e) {
+        // 404·410: 사용자가 브라우저에서 알림을 끄거나 구독이 만료됨 → 지운다
+        if (e.statusCode === 404 || e.statusCode === 410) await q('DELETE FROM push_subscriptions WHERE endpoint_hash = ?', [s.endpoint_hash]);
+        else console.warn('push failed', e.statusCode || '', e.body || e.message);
+      }
+    }));
+  })().catch((e) => console.error('push failed', e));
+}
+// 읽음 처리 → 그 회원의 다른 탭·기기의 종 숫자도 바로 맞춘다
+async function readNotes(uid, where, params) {
+  const r = await q(`UPDATE notifications SET read_at = NOW() WHERE user_id = ? AND read_at IS NULL AND ${where}`, [uid, ...params]);
+  if (r.affectedRows) io.to('u:' + uid).emit('notify', null);
+}
+// 누가 맡았거나 닫힌 상담의 '새 상담 요청' 알림은 더 할 일이 없으니 모두에게서 지운다
+async function clearCaseNotes(cid) {
+  const rows = await q("SELECT DISTINCT user_id FROM notifications WHERE kind = 'new_case' AND consultation_id = ?", [cid]);
+  if (!rows.length) return;
+  await q("DELETE FROM notifications WHERE kind = 'new_case' AND consultation_id = ?", [cid]);
+  io.to(rows.map((x) => 'u:' + x.user_id)).emit('notify', null);
+}
+const staffIds = async (roles) => (await q('SELECT id FROM users WHERE role IN (?) AND banned = 0', [roles])).map((x) => x.id);
+// 그 회원이 지금 이 상담 화면을 보고 있으면 (채팅으로 바로 보이니) 알림을 남기지 않는다
+// 채팅 탭을 열어 뒀어도 다른 탭·앱을 보고 있으면 알린다 (돌아오면 채팅 화면이 그 상담 알림을 읽음으로)
+const watching = async (cid, uid) => (await io.in(rooms(cid)).fetchSockets()).some((s) => s.data.me?.id === uid && s.data.visible);
+const sweepNotes = async () => {
+  try {
+    await q('DELETE FROM notifications WHERE read_at < NOW() - INTERVAL 30 DAY OR updated_at < NOW() - INTERVAL 90 DAY');
+    // 비밀번호 변경·다른 기기 로그아웃으로 끊긴 기기의 구독 (그 기기에서 다시 로그인하면 새로 등록된다)
+    await q('DELETE s FROM push_subscriptions s JOIN users u ON u.id = s.user_id WHERE s.session_ver <> u.session_ver');
+  } catch (e) { console.error('notification sweep failed', e); }
+};
+
+app.get('/api/notifications', auth(), wrap(async (req, res) => {
+  const rows = await q(`${NOTE_SELECT} WHERE n.user_id = ? ORDER BY n.updated_at DESC, n.id DESC LIMIT ${NOTE_LIMIT}`, [req.user.id]);
+  const [{ unread }] = await q('SELECT COUNT(*) AS unread FROM notifications WHERE user_id = ? AND read_at IS NULL', [req.user.id]);
+  res.json({ items: rows.map(noteOut), unread: Number(unread), push: push.publicKey });
+}));
+
+// { id } 하나, { consultation } 그 상담 것 전부, { all: true } 전부 읽음
+app.post('/api/notifications/read', auth(), wrap(async (req, res) => {
+  if (req.body.all === true) await readNotes(req.user.id, '1', []);
+  else if (req.body.consultation !== undefined) {
+    const cid = Number(req.body.consultation);
+    if (!Number.isInteger(cid)) return res.status(400).json({ error: '잘못된 상담이에요.' });
+    await readNotes(req.user.id, 'consultation_id = ?', [cid]);
+  } else {
+    const id = Number(req.body.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: '잘못된 알림이에요.' });
+    await readNotes(req.user.id, 'id = ?', [id]);
+  }
+  res.json({ ok: true });
+}));
+
+// ── 웹 푸시 구독 (이 기기로 알림 받기) ──
+// 같은 브라우저 구독은 1줄 — 다른 회원이 그 브라우저로 로그인해 켜면 그 회원 것으로 바뀐다
+app.post('/api/push/subscribe', auth(), wrap(async (req, res) => {
+  if (!push.enabled) return res.status(503).json({ error: '지금은 기기 알림을 쓸 수 없어요.' });
+  const { endpoint, keys } = req.body || {};
+  if (!push.okEndpoint(endpoint) || !push.okKeys(keys)) return res.status(400).json({ error: '이 브라우저의 알림 정보를 확인하지 못했어요.' });
+  await q(`INSERT INTO push_subscriptions (endpoint_hash, user_id, endpoint, p256dh, auth, session_ver) VALUES (?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), endpoint = VALUES(endpoint), p256dh = VALUES(p256dh), auth = VALUES(auth),
+      session_ver = VALUES(session_ver), updated_at = NOW()`,
+  [sha(endpoint), req.user.id, endpoint, keys.p256dh, keys.auth, req.session.ver ?? 0]);
+  // 회원 1명당 기기 10개까지 (오래 안 쓴 것부터 정리)
+  await q(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint_hash NOT IN (
+    SELECT endpoint_hash FROM (SELECT endpoint_hash FROM push_subscriptions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 10) keep)`, [req.user.id, req.user.id]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/push/unsubscribe', auth(), wrap(async (req, res) => {
+  await q('DELETE FROM push_subscriptions WHERE endpoint_hash = ? AND user_id = ?', [sha(String(req.body.endpoint || '')), req.user.id]);
+  res.json({ ok: true });
+}));
+
 // ── 상담 ──
 app.post('/api/consultations', auth(), wrap(async (req, res) => {
   const category = CATEGORIES.includes(req.body.category) ? req.body.category : '기타';
@@ -642,6 +780,7 @@ app.post('/api/consultations', auth(), wrap(async (req, res) => {
   const r = await q('INSERT INTO consultations (client_id, category, title, anonymous) VALUES (?, ?, ?, ?)', [req.user.id, category, title, anonymous]);
   await q('INSERT INTO messages (consultation_id, sender_id, body) VALUES (?, ?, ?)', [r.insertId, req.user.id, body]);
   io.to('counselors').emit('queue');
+  await notify((await staffIds(['counselor', 'admin'])).filter((x) => x !== req.user.id), 'new_case', { cid: r.insertId });
   res.json({ id: r.insertId });
 }));
 
@@ -668,6 +807,7 @@ app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
     `SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role, u.avatar
      FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id]))
     .map((m) => (hidesClient(c, req.user) ? maskMsg(m, c) : withAvatar(m)));
+  await readNotes(req.user.id, 'consultation_id = ?', [c.id]); // 상담을 열어 봤으니 그 상담 알림은 읽음
   // 상담 기록: 담당 상담사·관리자만 / 후기: 내담자·담당 상담사·관리자
   const staffView = req.user.role === 'admin' || (c.counselor_id === req.user.id && isStaff(req.user));
   const [note] = staffView ? await q(`SELECT n.body, n.updated_at, u.nickname AS author
@@ -751,6 +891,9 @@ app.post('/api/consultations/:id/accept', auth('counselor', 'admin'), wrap(async
   if (!r.affectedRows) return res.status(409).json({ error: '이미 다른 상담사가 맡았거나 수락할 수 없는 상담이에요.' });
   io.to('counselors').emit('queue');
   io.to(rooms(req.params.id)).emit('status', { status: 'active', counselor: req.user.nickname });
+  const [c] = await q('SELECT id, client_id FROM consultations WHERE id = ?', [req.params.id]);
+  await clearCaseNotes(c.id);
+  await notify([c.client_id], 'accepted', { cid: c.id, actor: req.user.nickname });
   res.json({ ok: true });
 }));
 
@@ -758,9 +901,14 @@ app.post('/api/consultations/:id/close', auth(), wrap(async (req, res) => {
   const c = await access(req.user, req.params.id);
   if (!c || (c.status === 'waiting' && c.client_id !== req.user.id && req.user.role !== 'admin'))
     return res.status(403).json({ error: '권한이 없어요.' });
-  await q("UPDATE consultations SET status = 'closed', closed_at = NOW() WHERE id = ? AND status <> 'closed'", [c.id]);
+  const r = await q("UPDATE consultations SET status = 'closed', closed_at = NOW() WHERE id = ? AND status <> 'closed'", [c.id]);
   io.to('counselors').emit('queue');
   io.to(rooms(c.id)).emit('status', { status: 'closed' });
+  if (r.affectedRows) {
+    await clearCaseNotes(c.id);
+    // 종료한 사람 말고 상담의 당사자에게 (관리자가 닫으면 둘 다)
+    await notify([c.client_id, c.counselor_id].filter((x) => x !== req.user.id), 'closed', { cid: c.id });
+  }
   res.json({ ok: true });
 }));
 
@@ -772,6 +920,7 @@ app.post('/api/apply', auth('user'), wrap(async (req, res) => {
   const [p] = await q("SELECT id FROM counselor_applications WHERE user_id = ? AND status = 'pending'", [req.user.id]);
   if (p) return res.status(409).json({ error: '이미 심사 중인 지원서가 있어요.' });
   await q('INSERT INTO counselor_applications (user_id, intro) VALUES (?, ?)', [req.user.id, intro]);
+  await notify(await staffIds(['admin']), 'app_new', { actor: req.user.nickname });
   res.json({ ok: true });
 }));
 
@@ -793,6 +942,7 @@ app.post('/api/admin/applications/:id/:decision', admin, wrap(async (req, res) =
   if (!a) return res.status(404).json({ error: '심사할 지원서가 없어요.' });
   await q('UPDATE counselor_applications SET status = ?, decided_at = NOW() WHERE id = ?', [status, a.id]);
   if (status === 'approved') await q("UPDATE users SET role = 'counselor' WHERE id = ? AND role = 'user'", [a.user_id]);
+  await notify([a.user_id], status === 'approved' ? 'app_approved' : 'app_rejected');
   res.json({ ok: true });
 }));
 
@@ -924,6 +1074,8 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   const sess = socket.request.session;
   const { me } = socket.data;
+  socket.join('u:' + me.id); // 알림
+  socket.on('visible', (v, ack) => { socket.data.visible = v === true; if (typeof ack === 'function') ack(); }); // 이 화면을 지금 보고 있는지 (푸시·메시지 알림 판단)
   if (isStaff(me)) socket.join('counselors');
 
   socket.on('join', async (id, ack) => {
@@ -946,6 +1098,10 @@ io.on('connection', (socket) => {
         FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`, [r.insertId]);
       io.to('c:' + c.id).emit('msg', withAvatar(m));
       io.to(`c:${c.id}:anon`).emit('msg', c.anonymous ? maskMsg(m, c) : withAvatar(m));
+      // 상대방이 이 상담 화면을 열어 두지 않았으면 알림. 익명 상담의 내담자 이름은 가린다
+      const to = user.id === c.client_id ? c.counselor_id : c.client_id;
+      if (to && !(await watching(c.id, to)))
+        await notify([to], 'message', { cid: c.id, actor: c.anonymous && user.id === c.client_id ? ANON_NAME : user.nickname });
       ack?.({ ok: true });
     } catch (e) {
       console.error(e);
@@ -959,7 +1115,8 @@ if (require.main === module) {
     const port = Number(process.env.PORT || 3000);
     server.listen(port, () => console.log(`Love Design on :${port}`));
     inbox.start(); // 문의 메일함: 받은편지함 주기 확인·저장, 30일 지난 읽은 메일 저장본 정리
+    sweepNotes(); setInterval(sweepNotes, 6 * 60 * 60 * 1000).unref(); // 오래된 알림 정리
   }).catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { server, init, pool, store, mail, fails };
+module.exports = { server, init, pool, store, mail, push, fails };

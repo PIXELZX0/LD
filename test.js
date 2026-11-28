@@ -2,13 +2,19 @@
 process.env.ADMIN_EMAIL ||= 'admin@test.local';
 process.env.ADMIN_PASSWORD ||= 'admin-pass-123';
 process.env.X_CLIENT_ID ||= 'x-test-client';
+{ const k = require('web-push').generateVAPIDKeys(); process.env.VAPID_PUBLIC_KEY ||= k.publicKey; process.env.VAPID_PRIVATE_KEY ||= k.privateKey; }
 const test = require('node:test');
 const assert = require('node:assert');
 const { io: ioc } = require('socket.io-client');
-const { server, init, pool, store, mail, fails } = require('./server');
+const { server, init, pool, store, mail, push, fails } = require('./server');
 
 const sent = [];
 mail.send = async (m) => { sent.push(m); };
+const pushed = []; // 웹 푸시는 실제로 보내지 않고 모아 둔다
+push.send = async (sub, payload) => {
+  pushed.push({ sub, payload });
+  if (sub.endpoint.includes('gone')) throw Object.assign(new Error('gone'), { statusCode: 410 });
+};
 const lastCode = (to) => sent.filter((m) => m.to === to).at(-1).text.match(/\d{6}/)[0];
 
 let base;
@@ -639,4 +645,167 @@ test('익명 상담', async () => {
   const guest = client(); await guest('/api/anon', {});
   const gid = (await guest('/api/consultations', { category: '연애', title: '손님', body: '안녕', anonymous: true })).body.id;
   assert.ok(!(await adm(`/api/consultations/${gid}`)).body.consultation.anonymous);
+});
+
+test('알림', async () => {
+  const adm = client();
+  await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
+  const signup = async (nickname) => {
+    const call = client(), email = rnd() + '@t.io';
+    await call('/api/email/code', { email });
+    assert.equal((await call('/api/signup', { email, password: 'password1', nickname, code: lastCode(email), agree: true })).status, 200);
+    return call;
+  };
+  const notes = async (call) => (await call('/api/notifications')).body;
+  const find = async (call, kind, cid) => (await notes(call)).items.find((x) => x.kind === kind && (cid === undefined || x.link === `/chat?id=${cid}`));
+  assert.equal((await client()('/api/notifications')).status, 401);
+
+  // 지원 → 관리자에게, 승인 → 지원자에게
+  const coNick = '알림상담' + rnd();
+  const co = await signup(coNick);
+  await co('/api/apply', { intro: '열 글자 넘는 자기소개입니다' });
+  const an = (await notes(adm)).items.find((x) => x.kind === 'app_new' && x.text.includes(coNick));
+  assert.ok(an && !an.read); assert.equal(an.link, '/admin');
+  const app = (await adm('/api/admin/applications')).body.find((x) => x.nickname === coNick && x.status === 'pending');
+  await adm(`/api/admin/applications/${app.id}/approve`, {});
+  assert.ok(await find(co, 'app_approved'));
+
+  // 익명 상담 요청 → 상담사·관리자에게 '새 상담 요청', 본인에겐 없음
+  const nick = '알림회원' + rnd();
+  const me = await signup(nick);
+  const cid = (await me('/api/consultations', { category: '연애', title: '알림 고민', body: '첫 메시지', anonymous: true })).body.id;
+  assert.ok(await find(co, 'new_case', cid)); assert.ok(await find(adm, 'new_case', cid));
+  assert.ok(!(await find(me, 'new_case', cid)));
+  // 수락 → 내담자에게 '맡았어요', 다른 사람의 '새 상담 요청'은 사라진다
+  assert.equal((await co(`/api/consultations/${cid}/accept`, {})).status, 200);
+  const acc = await find(me, 'accepted', cid);
+  assert.ok(acc.text.includes(coNick) && acc.text.includes('알림 고민'));
+  assert.ok(!(await find(adm, 'new_case', cid)) && !(await find(co, 'new_case', cid)));
+
+  // 새 메시지: 상대가 상담 화면을 열어 두지 않았을 때만, 읽지 않은 동안은 한 줄로 묶인다
+  const sock = (call) => new Promise((resolve) => {
+    const s = ioc(base, { extraHeaders: { cookie: call.cookie() }, transports: ['websocket'] });
+    s.on('connect', () => resolve(s));
+  });
+  const [sm, sc] = await Promise.all([sock(me), sock(co)]);
+  await new Promise((r) => sm.emit('visible', true, r)); // 내담자는 채팅 화면을 보고 있다
+  await new Promise((r) => sm.emit('join', cid, r));
+  const live = new Promise((r) => sc.once('notify', r)); // 상담사의 열린 화면(종)으로 바로 온다
+  const say = (s, body) => new Promise((r) => s.emit('send', { id: cid, body }, r));
+  assert.ok((await say(sm, '하나')).ok);
+  const pushed = await live;
+  assert.equal(pushed.kind, 'message'); assert.ok(pushed.text.includes('익명님') && !pushed.text.includes(nick), '익명 상담은 이름을 가린다');
+  assert.ok((await say(sm, '둘')).ok);
+  let m = await find(co, 'message', cid);
+  assert.equal(m.n, 2); assert.match(m.text, /2개/);
+  assert.equal((await co('/api/notifications')).body.items.filter((x) => x.kind === 'message' && x.link === `/chat?id=${cid}`).length, 1);
+  // 상담사도 방에 들어와서(채팅 화면) 보고 있으면 내담자에게서 오는 알림은 더 쌓이지 않고, 상담사가 보낸 건 방에 있는 내담자에게 알리지 않는다
+  await new Promise((r) => sc.emit('join', cid, r));
+  await new Promise((r) => sc.emit('visible', false, r)); // 채팅 탭을 열어 뒀어도 다른 화면을 보고 있으면 알린다
+  assert.ok((await say(sm, '셋')).ok);
+  assert.equal((await find(co, 'message', cid)).n, 3);
+  await new Promise((r) => sc.emit('visible', true, r));
+  assert.ok((await say(sm, '넷')).ok);
+  assert.equal((await find(co, 'message', cid)).n, 3);
+  assert.ok((await say(sc, '답장')).ok);
+  assert.ok(!(await find(me, 'message', cid)));
+  // 상담을 열어 보면 그 상담 알림은 읽음, 그 회원의 다른 화면에도 알린다
+  const syncd = new Promise((r) => sc.on('notify', (x) => x === null && r()));
+  await co(`/api/consultations/${cid}`);
+  await syncd;
+  m = await find(co, 'message', cid);
+  assert.ok(m.read);
+  // 안 읽은 수 · 하나 읽음 · 모두 읽음 · 남의 알림은 못 건드림
+  const before = (await notes(me)).unread;
+  assert.ok(before >= 1);
+  const one = (await notes(me)).items.find((x) => !x.read);
+  assert.equal((await co('/api/notifications/read', { id: one.id })).status, 200);
+  assert.equal((await notes(me)).unread, before, '다른 회원 알림은 읽음 처리되지 않는다');
+  assert.equal((await me('/api/notifications/read', { id: one.id })).status, 200);
+  assert.equal((await notes(me)).unread, before - 1);
+  assert.equal((await me('/api/notifications/read', { id: 'x' })).status, 400);
+  await me('/api/notifications/read', { all: true });
+  assert.equal((await notes(me)).unread, 0);
+
+  // 종료 → 상대방에게 (종료한 본인에겐 없음), 내담자에겐 후기 안내
+  sm.close(); sc.close();
+  assert.equal((await co(`/api/consultations/${cid}/close`, {})).status, 200);
+  assert.match((await find(me, 'closed', cid)).text, /후기/);
+  assert.ok(!(await find(co, 'closed', cid)));
+  // 반려
+  const rejNick = '알림반려' + rnd();
+  const other = await signup(rejNick);
+  await other('/api/apply', { intro: '열 글자 넘는 자기소개입니다' });
+  const app2 = (await adm('/api/admin/applications')).body.find((x) => x.nickname === rejNick && x.status === 'pending');
+  await adm(`/api/admin/applications/${app2.id}/reject`, {});
+  assert.equal((await find(other, 'app_rejected')).link, '/my');
+});
+
+test('웹 푸시', async () => {
+  const adm = client();
+  await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
+  const g = client();
+  await g('/api/anon', {});
+  assert.equal((await g('/api/notifications')).body.push, process.env.VAPID_PUBLIC_KEY);
+  const keys = () => ({ p256dh: crypto.createECDH('prime256v1').generateKeys().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') });
+  const ep = 'https://fcm.googleapis.com/fcm/send/' + rnd();
+  // 알려진 푸시 서비스 주소만 (서버가 대신 요청을 보내므로)
+  for (const endpoint of ['http://fcm.googleapis.com/x', 'https://evil.example/x', 'https://fcm.googleapis.com:8443/x', 'https://127.0.0.1/x', 'https://fcm.googleapis.com.evil.example/x'])
+    assert.equal((await g('/api/push/subscribe', { endpoint, keys: keys() })).status, 400, endpoint);
+  assert.equal((await g('/api/push/subscribe', { endpoint: ep, keys: { p256dh: 'abc', auth: 'def' } })).status, 400);
+  assert.equal((await client()('/api/push/subscribe', { endpoint: ep, keys: keys() })).status, 401);
+  assert.equal((await g('/api/push/subscribe', { endpoint: ep, keys: keys() })).status, 200);
+  assert.equal((await g('/api/push/subscribe', { endpoint: 'https://web.push.apple.com/' + rnd(), keys: keys() })).status, 200);
+
+  const until = async (fn) => { for (let i = 0; i < 50; i++) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 40)); } return false; };
+  const to = (endpoint) => pushed.filter((p) => p.sub.endpoint === endpoint);
+  const ask = async (title) => (await g('/api/consultations', { category: '연애', title, body: '내용' })).body.id;
+
+  // 사이트를 보고 있지 않으면 기기로 푸시 — 상담 제목·이름은 넣지 않는다
+  const cid = await ask('푸시비밀제목');
+  await adm(`/api/consultations/${cid}/accept`, {});
+  assert.ok(await until(() => to(ep).length === 1));
+  const p = to(ep)[0].payload;
+  assert.deepEqual([p.title, p.body, p.link], ['Love Design', '상담사가 상담을 맡았어요.', `/chat?id=${cid}`]);
+  assert.ok(!JSON.stringify(p).includes('푸시비밀제목'));
+
+  // 사이트를 보고 있으면 종 알림만
+  const s = ioc(base, { extraHeaders: { cookie: g.cookie() }, transports: ['websocket'] });
+  await new Promise((r) => s.on('connect', r));
+  await new Promise((r) => s.emit('visible', true, r));
+  const got = new Promise((r) => s.on('notify', (x) => x && r(x)));
+  await adm(`/api/consultations/${cid}/close`, {});
+  assert.equal((await got).kind, 'closed');
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(to(ep).length, 1);
+  s.close();
+
+  // 다른 기기 로그아웃 뒤엔 그 전에 등록한 기기로 보내지 않는다 → 다시 등록하면 받는다
+  await g('/api/account/logout-others', {});
+  const cid2 = await ask('두번째');
+  await adm(`/api/consultations/${cid2}/accept`, {});
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(to(ep).length, 1);
+  assert.equal((await g('/api/push/subscribe', { endpoint: ep, keys: keys() })).status, 200);
+  await adm(`/api/consultations/${cid2}/close`, {});
+  assert.ok(await until(() => to(ep).length === 2));
+
+  // 푸시 서비스가 410(구독 없음)이면 지운다
+  const gone = 'https://fcm.googleapis.com/fcm/send/gone-' + rnd();
+  await g('/api/push/subscribe', { endpoint: gone, keys: keys() });
+  const count = async (endpoint) => (await pool.query('SELECT COUNT(*) AS n FROM push_subscriptions WHERE endpoint = ?', [endpoint]))[0][0].n;
+  await adm(`/api/consultations/${await ask('세번째')}/accept`, {});
+  assert.ok(await until(async () => (await count(gone)) === 0));
+
+  // 같은 브라우저로 다른 회원이 켜면 그 회원 것으로 바뀐다, 끄면(로그아웃) 지워진다
+  const h = client(); await h('/api/anon', {});
+  await h('/api/push/subscribe', { endpoint: ep, keys: keys() });
+  const [[row]] = await pool.query('SELECT user_id FROM push_subscriptions WHERE endpoint = ?', [ep]);
+  assert.equal(row.user_id, (await h('/api/me')).body.user.id);
+  await g('/api/push/unsubscribe', { endpoint: ep });
+  assert.equal(await count(ep), 1, '남의 구독은 지울 수 없다');
+  await h('/api/push/unsubscribe', { endpoint: ep });
+  assert.equal(await count(ep), 0);
+  for (const f of ['/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png', '/icon-maskable.png'])
+    assert.equal((await fetch(base + f)).status, 200, f);
 });
