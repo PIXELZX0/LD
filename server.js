@@ -913,10 +913,18 @@ const io = new Server(server);
 const rooms = (id) => ['c:' + id, `c:${id}:anon`];
 io.engine.use(sessionMw);
 
-io.on('connection', async (socket) => {
+// 로그인 확인은 연결이 맺어지기 전에 끝낸다. connection 안에서 await 하면 그 사이에 도착한
+// join(클라이언트는 connect 직후 바로 보낸다)이 핸들러 없이 버려져 방에 못 들어간다.
+io.use(async (socket, next) => {
+  const me = await sessionUser(socket.request.session).catch(() => null);
+  if (!me) return next(new Error('login'));
+  socket.data.me = me;
+  next();
+});
+
+io.on('connection', (socket) => {
   const sess = socket.request.session;
-  const me = await sessionUser(sess).catch(() => null);
-  if (!me) return socket.disconnect(true);
+  const { me } = socket.data;
   if (isStaff(me)) socket.join('counselors');
 
   socket.on('join', async (id, ack) => {
