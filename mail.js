@@ -65,16 +65,28 @@ function layout({ preheader, body }) {
 </html>`;
 }
 
-// 회원가입 인증번호 메일
-mail.verifyCode = (code) => ({
-  subject: `[Love Design] 인증번호 ${code}`,
-  text: `Love Design 회원가입 인증번호는 ${code} 입니다.\n10분 안에 입력해주세요.\n\n본인이 요청하지 않았다면 이 메일을 무시하세요. 계정은 만들어지지 않아요.\n\n문의: ${CONTACT}`,
-  html: layout({
-    preheader: `인증번호 ${code} · 10분 안에 입력해주세요.`,
-    body: `
+// 인증번호 메일 — 회원가입(signup) / 비밀번호 변경(password)
+const CODE_TEXT = {
+  signup: {
+    title: 'Love Design 회원가입 인증번호', h1: '이메일 인증번호예요', where: '회원가입 화면의 인증번호 칸에',
+    ignore: '계정은 만들어지지 않아요.', ignoreLong: '인증번호를 입력하지 않으면 계정은 만들어지지 않아요.',
+  },
+  password: {
+    title: 'Love Design 비밀번호 변경 인증번호', h1: '비밀번호 변경 인증번호예요', where: '내 정보 > 비밀번호 변경 창의 인증번호 칸에',
+    ignore: '비밀번호는 바뀌지 않아요.', ignoreLong: '인증번호를 입력하지 않으면 비밀번호는 바뀌지 않아요.',
+  },
+};
+mail.verifyCode = (code, kind = 'signup') => {
+  const t = CODE_TEXT[kind];
+  return {
+    subject: kind === 'signup' ? `[Love Design] 인증번호 ${code}` : `[Love Design] 비밀번호 변경 인증번호 ${code}`,
+    text: `${t.title}는 ${code} 입니다.\n10분 안에 입력해주세요.\n\n본인이 요청하지 않았다면 이 메일을 무시하세요. ${t.ignore}\n\n문의: ${CONTACT}`,
+    html: layout({
+      preheader: `인증번호 ${code} · 10분 안에 입력해주세요.`,
+      body: `
       <p style="margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:3px;color:${C.rose}">EMAIL VERIFICATION</p>
-      <h1 style="margin:0 0 12px;font-size:24px;line-height:1.35;letter-spacing:-0.5px;font-weight:800;color:${C.ink}">이메일 인증번호예요</h1>
-      <p style="margin:0 0 28px;font-size:15px;line-height:1.7;color:${C.muted}">회원가입 화면의 인증번호 칸에 아래 숫자 6자리를 입력해주세요.</p>
+      <h1 style="margin:0 0 12px;font-size:24px;line-height:1.35;letter-spacing:-0.5px;font-weight:800;color:${C.ink}">${t.h1}</h1>
+      <p style="margin:0 0 28px;font-size:15px;line-height:1.7;color:${C.muted}">${t.where} 아래 숫자 6자리를 입력해주세요.</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr><td align="center" style="background:${C.tint};border:1px solid ${C.roseSoft};border-radius:16px;padding:26px 12px">
           <span style="font-family:'SF Mono',Menlo,Consolas,'Courier New',monospace;font-size:38px;line-height:1;font-weight:700;letter-spacing:10px;color:${C.ink};padding-left:10px">${code}</span>
@@ -85,10 +97,11 @@ mail.verifyCode = (code) => ({
       </p>
       <hr style="border:0;border-top:1px solid ${C.line};margin:32px 0 20px">
       <p style="margin:0;font-size:13px;line-height:1.7;color:${C.muted}">
-        본인이 요청하지 않았다면 이 메일을 무시해주세요. 인증번호를 입력하지 않으면 계정은 만들어지지 않아요.
+        본인이 요청하지 않았다면 이 메일을 무시해주세요. ${t.ignoreLong}
         인증번호는 누구에게도 알려주지 마세요.
       </p>`,
-  }),
-});
+    }),
+  };
+};
 
 module.exports = mail;

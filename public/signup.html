@@ -54,6 +54,7 @@
     <label>인증번호 <input name="code" id="code" inputmode="numeric" pattern="\d{6}" maxlength="6" required autocomplete="one-time-code" placeholder="메일로 받은 6자리"></label>
     <p class="muted" id="info"></p>
     <label>비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>비밀번호 확인 <input name="confirm" type="password" minlength="8" maxlength="72" required autocomplete="new-password" placeholder="한 번 더 입력"></label>
    </div>
     <label>닉네임 <input name="nickname" maxlength="20" required></label>
     <fieldset class="agree">
@@ -172,7 +173,9 @@ f.onsubmit = async (e) => {
       const r = await api('/api/signup/x', { nickname: f.nickname.value, agree });
       location.href = r.next || '/my';
     } else {
-      await api('/api/signup', { ...Object.fromEntries(new FormData(f)), agree });
+      const { confirm, ...d } = Object.fromEntries(new FormData(f));
+      if (d.password !== confirm) { err.textContent = '비밀번호가 서로 달라요.'; f.confirm.focus(); return; }
+      await api('/api/signup', { ...d, agree });
       location.href = '/my';
     }
   }

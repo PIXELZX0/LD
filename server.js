@@ -130,20 +130,26 @@ app.post('/api/email/code', wrap(async (req, res) => {
   if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
   const [dup] = await q('SELECT id FROM users WHERE email = ?', [email]);
   if (dup) return res.status(409).json({ error: '이미 가입된 이메일이에요.' });
+  fail(key);
+  await sendCode(res, email, 'signup');
+}));
+
+// 인증번호를 만들어 메일로 보낸다 (재발송 1분 간격). 가입용·비밀번호 변경용이 같은 표를 쓴다:
+// 가입용은 아직 없는 이메일에만, 비밀번호 변경용은 로그인한 회원 자신의 이메일에만 보내므로 섞이지 않는다.
+async function sendCode(res, email, kind) {
   const [prev] = await q('SELECT sent_at > NOW() - INTERVAL 60 SECOND AS recent FROM email_codes WHERE email = ?', [email]);
   if (prev?.recent) return res.status(429).json({ error: '인증번호는 1분에 한 번만 보낼 수 있어요.' });
-  fail(key);
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   await q('REPLACE INTO email_codes (email, code_hash, expires_at) VALUES (?, ?, NOW() + INTERVAL 10 MINUTE)', [email, sha(code)]);
   try {
-    await mail.send({ to: email, ...mail.verifyCode(code) });
+    await mail.send({ to: email, ...mail.verifyCode(code, kind) });
   } catch (e) {
     console.error('mail send failed', e);
     await q('DELETE FROM email_codes WHERE email = ?', [email]);
     return res.status(502).json({ error: '메일을 보내지 못했어요. 주소를 확인하고 다시 시도해주세요.' });
   }
   res.json({ ok: true });
-}));
+}
 
 // 이메일 인증번호 확인 → 틀리면 오류 문구, 맞으면 null
 async function checkCode(email, code) {
@@ -398,13 +404,36 @@ async function bumpSessions(req) {
   await login(req, await getUser(req.user.id));
 }
 
+// 비밀번호 변경: 현재 비밀번호를 모르면 가입한 이메일로 받은 인증번호나 등록한 패스키로 본인 확인
+app.post('/api/account/password/code', auth(), wrap(async (req, res) => {
+  if (req.user.is_anonymous || !req.user.email) return res.status(403).json({ error: '이메일로 가입한 회원만 쓸 수 있어요.' });
+  if (!mail.enabled) return res.status(503).json({ error: `지금은 인증 메일을 보낼 수 없어요. ${mail.contact} 로 문의해주세요.` });
+  const key = 'pwmail:' + req.user.id; // 자기 이메일로만 보내므로 회원별로 센다
+  if (tooMany(key)) return res.status(429).json({ error: '요청이 너무 많아요. 잠시 후 다시 해주세요.' });
+  fail(key);
+  await sendCode(res, req.user.email, 'password');
+}));
+
 app.post('/api/account/password', auth(), wrap(async (req, res) => {
   if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 비밀번호를 바꿀 수 있어요.' });
+  if (!req.user.email) return res.status(400).json({ error: '먼저 이메일 로그인을 추가해주세요.' });
   const key = 'pw:' + req.user.id;
   if (tooMany(key)) return res.status(429).json({ error: '시도가 너무 많아요. 잠시 후 다시 해주세요.' });
   const password = String(req.body.password || '');
   if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '새 비밀번호는 8~72자로 해주세요.' });
-  if (!(await bcrypt.compare(String(req.body.current || ''), req.user.password_hash || ''))) {
+  if (req.body.passkey) {
+    const expectedChallenge = takeChallenge(req, 'reauth');
+    if (!expectedChallenge) return res.status(400).json({ error: '시간이 지났어요. 다시 시도해주세요.' });
+    const pk = await verifyPasskey(req, req.body.passkey, expectedChallenge);
+    if (!pk || pk.user_id !== req.user.id) {
+      fail(key);
+      return res.status(400).json({ error: '이 계정에 등록된 패스키가 아니에요.' });
+    }
+  } else if (req.body.code !== undefined) {
+    const bad = await checkCode(req.user.email, String(req.body.code).trim());
+    if (bad) return res.status(400).json({ error: bad });
+    await q('DELETE FROM email_codes WHERE email = ?', [req.user.email]);
+  } else if (!(await bcrypt.compare(String(req.body.current || ''), req.user.password_hash || ''))) {
     fail(key);
     return res.status(400).json({ error: '현재 비밀번호가 맞지 않아요.' });
   }
@@ -492,6 +521,38 @@ app.post('/api/passkeys/delete', auth(), member, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// 패스키 서명 확인 → 맞으면 그 패스키 행(카운터·마지막 사용 갱신), 아니면 null
+async function verifyPasskey(req, response, expectedChallenge) {
+  const [pk] = await q('SELECT * FROM passkeys WHERE id = ?', [String(response?.id || '')]);
+  if (!pk) return null;
+  if (response.response?.userHandle && response.response.userHandle !== b64url(userHandle(pk.user_id))) return null;
+  const { rpID, origin } = rp(req);
+  let v;
+  try {
+    v = await webauthn.verifyAuthenticationResponse({
+      response, expectedChallenge, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: true,
+      credential: { id: pk.id, publicKey: new Uint8Array(pk.public_key), counter: Number(pk.counter), transports: pk.transports?.split(',') },
+    });
+  } catch (e) {
+    console.warn('passkey verify failed', e.message);
+  }
+  if (!v?.verified) return null;
+  await q('UPDATE passkeys SET counter = ?, last_used_at = NOW() WHERE id = ?', [v.authenticationInfo.newCounter, pk.id]);
+  return pk;
+}
+
+// 로그인한 회원의 본인 확인용 (비밀번호 변경) → 자기 패스키만 허용
+app.post('/api/account/reauth/options', auth(), member, wrap(async (req, res) => {
+  const mine = await q('SELECT id, transports FROM passkeys WHERE user_id = ?', [req.user.id]);
+  if (!mine.length) return res.status(400).json({ error: '등록한 패스키가 없어요.' });
+  const options = await webauthn.generateAuthenticationOptions({
+    rpID: rp(req).rpID, userVerification: 'required',
+    allowCredentials: mine.map((p) => ({ id: p.id, transports: p.transports ? p.transports.split(',') : undefined })),
+  });
+  keepChallenge(req, 'reauth', options.challenge);
+  res.json(options);
+}));
+
 // 아이디 입력 없이 로그인 (discoverable credential) → allowCredentials 를 비워 둔다
 app.post('/api/passkey/login/options', wrap(async (req, res) => {
   const options = await webauthn.generateAuthenticationOptions({ rpID: rp(req).rpID, userVerification: 'required' });
@@ -504,25 +565,13 @@ app.post('/api/passkey/login/verify', wrap(async (req, res) => {
   if (tooMany(key)) return res.status(429).json({ error: '시도가 너무 많아요. 잠시 후 다시 해주세요.' });
   const expectedChallenge = takeChallenge(req, 'login');
   if (!expectedChallenge) return res.status(400).json({ error: '시간이 지났어요. 다시 시도해주세요.' });
-  const response = req.body.response;
-  const [pk] = await q('SELECT * FROM passkeys WHERE id = ?', [String(response?.id || '')]);
-  const denied = () => { fail(key); return res.status(401).json({ error: '등록되지 않은 패스키예요. 비밀번호로 로그인한 뒤 내 정보에서 등록해주세요.' }); };
-  if (!pk) return denied();
-  if (response.response?.userHandle && response.response.userHandle !== b64url(userHandle(pk.user_id))) return denied();
-  const { rpID, origin } = rp(req);
-  let v;
-  try {
-    v = await webauthn.verifyAuthenticationResponse({
-      response, expectedChallenge, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: true,
-      credential: { id: pk.id, publicKey: new Uint8Array(pk.public_key), counter: Number(pk.counter), transports: pk.transports?.split(',') },
-    });
-  } catch (e) {
-    console.warn('passkey login verify failed', e.message);
+  const pk = await verifyPasskey(req, req.body.response, expectedChallenge);
+  if (!pk) {
+    fail(key);
+    return res.status(401).json({ error: '등록되지 않은 패스키예요. 비밀번호로 로그인한 뒤 내 정보에서 등록해주세요.' });
   }
-  if (!v?.verified) return denied();
   const user = await getUser(pk.user_id);
   if (!user) return res.status(403).json({ error: '이용이 정지된 계정이에요.' });
-  await q('UPDATE passkeys SET counter = ?, last_used_at = NOW() WHERE id = ?', [v.authenticationInfo.newCounter, pk.id]);
   fails.delete(key);
   await login(req, user);
   res.json({ user: pub(user) });

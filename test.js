@@ -209,6 +209,16 @@ test('패스키', async () => {
   const other = softPasskey(base); other.create({ user: { id: 'eA' }, challenge: 'x' });
   assert.equal((await stranger('/api/passkey/login/verify', { response: other.get(so) })).status, 401);
 
+  // 현재 비밀번호를 몰라도 내 패스키로 본인 확인하고 바꿀 수 있다 (남의 패스키·챌린지 없이는 거부)
+  assert.equal((await anon('/api/account/reauth/options', {})).status, 403);
+  assert.equal((await me('/api/account/password', { passkey: key.get({ challenge: 'x' }), password: 'password2' })).status, 400);
+  const so2 = (await me('/api/account/reauth/options', {})).body;
+  assert.deepEqual(so2.allowCredentials.map((c) => c.id), [key.id]);
+  assert.equal((await me('/api/account/password', { passkey: other.get(so2), password: 'password2' })).status, 400);
+  const ra = (await me('/api/account/reauth/options', {})).body;
+  assert.equal((await me('/api/account/password', { passkey: key.get(ra), password: 'password2' })).status, 200);
+  assert.equal((await client()('/api/login', { email, password: 'password2' })).status, 200);
+
   // 남의 패스키는 못 지우고, 내 것은 지우면 더 이상 로그인 불가
   assert.equal((await anon('/api/passkeys/delete', { id: key.id })).status, 403);
   assert.equal((await me('/api/passkeys/delete', { id: key.id })).status, 200);
@@ -248,6 +258,17 @@ test('내 정보', async () => {
   assert.equal((await client()('/api/login', { email, password: 'password1' })).status, 401);
   const again = client();
   assert.equal((await again('/api/login', { email, password: 'password2' })).status, 200);
+
+  // 현재 비밀번호를 몰라도 가입한 이메일로 받은 인증번호로 바꿀 수 있다
+  assert.equal((await anon('/api/account/password/code', {})).status, 403);
+  assert.equal((await again('/api/account/password/code', {})).status, 200);
+  assert.match(sent.at(-1).subject, /비밀번호 변경/);
+  assert.equal((await again('/api/account/password/code', {})).status, 429); // 1분 쿨다운
+  assert.equal((await again('/api/account/password', { code: '000000', password: 'password3' })).status, 400);
+  assert.equal((await again('/api/account/password', { code: lastCode(email), password: 'password3' })).status, 200);
+  assert.equal((await again('/api/account/password', { code: lastCode(email), password: 'password4' })).status, 400); // 한 번만
+  assert.equal((await me('/api/me')).body.user, null); // 다른 기기 로그아웃
+  assert.equal((await me('/api/login', { email, password: 'password3' })).status, 200);
 
   // 다른 기기 모두 로그아웃
   assert.equal((await me('/api/account/logout-others', {})).status, 200);

@@ -101,18 +101,12 @@
     </section>
 
     <section id="pwSection">
-      <h2>비밀번호 변경</h2>
-      <div class="card">
-        <form id="pwForm">
-          <input type="text" name="username" id="pwUser" autocomplete="username" hidden>
-          <label>현재 비밀번호 <input name="current" type="password" required autocomplete="current-password"></label>
-          <label>새 비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-          <label>새 비밀번호 확인 <input name="confirm" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-          <p class="err" id="pwMsg"></p>
-          <button class="btn">비밀번호 바꾸기</button>
-        </form>
-        <p class="muted">바꾸면 다른 기기에서는 모두 로그아웃돼요.</p>
+      <h2>비밀번호</h2>
+      <div class="card row">
+        <p class="muted">비밀번호를 바꾸면 다른 기기에서는 모두 로그아웃돼요. 현재 비밀번호를 몰라도 이메일 인증이나 패스키로 바꿀 수 있어요.</p>
+        <button type="button" class="btn" id="pwOpen">비밀번호 변경</button>
       </div>
+      <p class="err" id="pwMsg"></p>
     </section>
 
     <section>
@@ -135,6 +129,35 @@
     </section>
   </div>
 </main>
+<dialog class="sheet" id="pwDlg" aria-labelledby="pwH">
+  <form id="pwForm">
+    <div class="row"><h2 id="pwH">비밀번호 변경</h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
+    <input type="text" name="username" id="pwUser" autocomplete="username" hidden>
+    <div class="pw-way" data-way="current">
+      <label>현재 비밀번호 <input name="current" type="password" required autocomplete="current-password"></label>
+      <p class="muted">비밀번호가 기억나지 않나요?
+        <button type="button" class="linkish" data-go="email">이메일 인증</button><span data-pk-only> 또는 <button type="button" class="linkish" data-go="passkey">패스키</button></span>로 바꿀 수 있어요.</p>
+    </div>
+    <div class="pw-way" data-way="email" hidden>
+      <label>이메일 인증번호
+        <span class="inline">
+          <input name="code" id="pwCode" inputmode="numeric" pattern="\d{6}" maxlength="6" required autocomplete="one-time-code" placeholder="메일로 받은 6자리">
+          <button type="button" class="btn" id="pwSend">인증번호 받기</button>
+        </span>
+      </label>
+      <p class="muted" id="pwInfo">가입한 이메일로 인증번호를 보내요.</p>
+      <p class="muted"><button type="button" class="linkish" data-go="current">현재 비밀번호로 확인</button><span data-pk-only> · <button type="button" class="linkish" data-go="passkey">패스키로 확인</button></span></p>
+    </div>
+    <div class="pw-way" data-way="passkey" hidden>
+      <p class="muted">새 비밀번호를 입력하고 ‘비밀번호 바꾸기’를 누르면 패스키 확인 창이 떠요. 등록해 둔 지문·얼굴·화면 잠금으로 본인 확인을 해주세요.</p>
+      <p class="muted"><button type="button" class="linkish" data-go="current">현재 비밀번호로 확인</button> · <button type="button" class="linkish" data-go="email">이메일 인증으로 확인</button></p>
+    </div>
+    <label>새 비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>새 비밀번호 확인 <input name="confirm" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <p class="err" id="pwErr"></p>
+    <div class="row rule-act"><button type="button" class="btn" data-close>취소</button><button class="btn primary" id="pwSubmit">비밀번호 바꾸기</button></div>
+  </form>
+</dialog>
 <script>
 const ok = (node, text) => { node.textContent = text; node.classList.add('ok'); };
 const bad = (node, text) => { node.textContent = text; node.classList.remove('ok'); };
@@ -304,15 +327,66 @@ avDel.onclick = async () => {
   } catch (x) { note(x.message); }
 };
 
+// ── 비밀번호 변경 팝업: 현재 비밀번호 / 이메일 인증번호 / 패스키 중 하나로 본인 확인 ──
+let pwWay = 'current', pkN = 0, pwTimer;
+const canPasskey = () => pkN > 0 && SimpleWebAuthnBrowser.browserSupportsWebAuthn();
+function setWay(way) {
+  pwWay = way;
+  pwForm.querySelectorAll('.pw-way').forEach((box) => {
+    box.hidden = box.dataset.way !== way;
+    box.querySelectorAll('input').forEach((i) => { i.disabled = box.hidden; }); // 숨긴 칸은 검사·전송하지 않는다
+  });
+  pwForm.querySelectorAll('[data-pk-only]').forEach((n) => { n.hidden = !canPasskey(); });
+  bad(pwErr, '');
+  pwForm.querySelector(`[data-way="${way}"] input`)?.focus();
+}
+pwForm.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => setWay(b.dataset.go); });
+pwOpen.onclick = () => {
+  pwForm.reset();
+  setWay('current');
+  bad(pwMsg, '');
+  pwDlg.showModal();
+};
+pwDlg.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => pwDlg.close(); });
+pwDlg.addEventListener('click', (e) => { if (e.target === pwDlg) pwDlg.close(); });
+pwSend.onclick = async () => {
+  bad(pwErr, '');
+  pwSend.disabled = true;
+  try {
+    await api('/api/account/password/code', {});
+    pwInfo.textContent = `${pwUser.value} 로 인증번호를 보냈어요. 10분 안에 입력해주세요. (스팸함도 확인해주세요)`;
+    pwCode.focus();
+    let left = 60;
+    clearInterval(pwTimer);
+    pwTimer = setInterval(() => {
+      pwSend.textContent = --left > 0 ? `다시 받기 (${left})` : '다시 받기';
+      if (left <= 0) { clearInterval(pwTimer); pwSend.disabled = false; }
+    }, 1000);
+  } catch (x) { bad(pwErr, x.message); pwSend.disabled = false; }
+};
 pwForm.onsubmit = async (e) => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(pwForm));
-  if (d.password !== d.confirm) return bad(pwMsg, '새 비밀번호가 서로 달라요.');
+  if (d.password !== d.confirm) return bad(pwErr, '새 비밀번호가 서로 달라요.');
+  pwSubmit.disabled = true;
   try {
-    await api('/api/account/password', { current: d.current, password: d.password });
-    pwForm.reset();
+    const body = { password: d.password };
+    if (pwWay === 'current') body.current = d.current;
+    else if (pwWay === 'email') body.code = d.code;
+    else {
+      const optionsJSON = await api('/api/account/reauth/options', {});
+      body.passkey = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON });
+    }
+    await api('/api/account/password', body);
+    clearInterval(pwTimer);
+    pwSend.disabled = false; pwSend.textContent = '인증번호 받기';
+    pwDlg.close();
     ok(pwMsg, '비밀번호를 바꿨어요. 다른 기기에서는 로그아웃됐어요.');
-  } catch (x) { bad(pwMsg, x.message); }
+  } catch (x) {
+    if (x.name === 'NotAllowedError' || x.name === 'AbortError') bad(pwErr, '패스키 확인을 취소했어요.');
+    else bad(pwErr, x.code ? '이 기기에서는 패스키를 쓸 수 없어요.' : x.message);
+  }
+  pwSubmit.disabled = false;
 };
 
 others.onclick = async () => {
@@ -323,7 +397,7 @@ others.onclick = async () => {
 
 async function loadPasskeys() {
   const rows = await api('/api/passkeys');
-  pkCount.textContent = rows.length;
+  pkCount.textContent = pkN = rows.length;
   pkList.replaceChildren(...rows.map((p) => el('div', { class: 'row' },
     el('div', {}, el('b', {}, p.name), el('div', { class: 'muted' },
       `${fmt(p.created_at)} 등록 · ${p.last_used_at ? fmt(p.last_used_at) + ' 마지막 사용' : '아직 안 씀'}`)),
