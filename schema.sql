@@ -111,4 +111,17 @@ CREATE TABLE IF NOT EXISTS mail_cache (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (box, uid),
   INDEX (received_at)
-)
+);
+
+-- 외부 계정 로그인 연결 (지금은 X). subject 는 그 서비스의 고유 사용자 번호, username 은 표시용 아이디
+-- 회원 1명당 서비스마다 1개, 외부 계정 1개는 회원 1명에게만 연결된다
+CREATE TABLE IF NOT EXISTS social_accounts (
+  provider VARCHAR(10) CHARACTER SET ascii NOT NULL,
+  subject VARCHAR(64) CHARACTER SET ascii NOT NULL,
+  user_id INT NOT NULL,
+  username VARCHAR(60) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (provider, subject),
+  UNIQUE KEY user_provider (user_id, provider),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) DEFAULT CHARSET=utf8mb4;

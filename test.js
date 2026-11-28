@@ -1,6 +1,7 @@
 // 스모크 테스트: 실제 MySQL 필요 (DATABASE_URL). node --test test.js
 process.env.ADMIN_EMAIL ||= 'admin@test.local';
 process.env.ADMIN_PASSWORD ||= 'admin-pass-123';
+process.env.X_CLIENT_ID ||= 'x-test-client';
 const test = require('node:test');
 const assert = require('node:assert');
 const { io: ioc } = require('socket.io-client');
@@ -30,6 +31,12 @@ function client() {
     return { status: r.status, body: await r.json().catch(() => null) };
   };
   call.cookie = () => cookie;
+  // 리다이렉트를 따라가지 않는 GET → { status, location }
+  call.go = async (path) => {
+    const r = await fetch(base + path, { headers: { cookie }, redirect: 'manual' });
+    const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+    return { status: r.status, location: r.headers.get('location') };
+  };
   return call;
 }
 const rnd = () => Math.random().toString(36).slice(2, 8);
@@ -370,4 +377,122 @@ test('프로필 사진', async () => {
   assert.equal((await me('/api/account/avatar/delete', {})).body.user.avatar, null);
   assert.equal((await raw(me, url)).status, 404);
   assert.equal((await me('/api/me')).body.user.avatar, null);
+});
+
+// ── X 로그인: X API 는 가짜로 바꿔 끼운다 ──
+const xauth = require('./xauth');
+const xCalls = [];
+let xUser;
+xauth.http = async (u, opts = {}) => {
+  const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  const form = opts.body instanceof URLSearchParams ? opts.body : null;
+  xCalls.push({ url: u, form });
+  if (u.endsWith('/oauth2/token')) return form.get('code') === 'good' ? json(200, { access_token: 'tok-' + xUser.id }) : json(400, { error: 'invalid_request' });
+  if (u.endsWith('/users/me')) return json(200, { data: xUser });
+  if (u.endsWith('/oauth2/revoke')) return json(200, { revoked: true });
+  return json(404, {});
+};
+// X 동의 화면까지 가서 state 를 받고, X 가 돌려보내는 콜백을 흉내 낸다 → 콜백이 보낸 곳
+async function viaX(c, user, start = '/api/auth/x', code = 'good') {
+  xUser = user;
+  const r = await c.go(start);
+  assert.equal(r.status, 302);
+  const to = new URL(r.location, base);
+  if (to.origin === base) return r.location; // X 로 가지 않고 끝남 (권한 없음 등)
+  assert.equal(to.origin + to.pathname, 'https://x.com/i/oauth2/authorize');
+  assert.equal(to.searchParams.get('code_challenge_method'), 'S256');
+  const challenge = to.searchParams.get('code_challenge');
+  const n = xCalls.length;
+  const loc = (await c.go(`/api/auth/x/callback?code=${code}&state=${to.searchParams.get('state')}`)).location;
+  const tok = xCalls.slice(n).find((x) => x.url.endsWith('/oauth2/token'));
+  if (tok) assert.equal(crypto.createHash('sha256').update(tok.form.get('code_verifier')).digest('base64url'), challenge); // PKCE
+  return loc;
+}
+
+test('X 로그인·가입·연결', async () => {
+  assert.equal((await client()('/api/me')).body.social.x, true);
+  const xa = { id: String(Date.now()) + '1', username: 'x_' + rnd(), name: '엑스 사용자 이름이 아주 길어서 스무 자를 넘어요' };
+
+  // 처음 보는 X 계정 → 가입 화면으로, 약관 동의 없이는 가입 불가
+  const me = client();
+  assert.equal(await viaX(me, xa), '/signup?via=x');
+  assert.equal(xCalls.at(-1).url.endsWith('/oauth2/revoke'), true); // 토큰은 바로 폐기
+  assert.deepEqual((await me('/api/signup/x')).body.pending, { username: xa.username, name: xa.name });
+  assert.equal((await client()('/api/signup/x')).body.pending, null);
+  assert.equal((await client()('/api/signup/x', { nickname: '남', agree: true })).status, 400);
+  assert.equal((await me('/api/signup/x', { nickname: '엑스', agree: false })).status, 400);
+  assert.equal((await me('/api/signup/x', { nickname: '', agree: true })).status, 400);
+  // 같은 X 계정으로 두 곳에서 동시에 가입하면 하나만 된다
+  const twin = client();
+  assert.equal(await viaX(twin, xa), '/signup?via=x');
+  const su = await me('/api/signup/x', { nickname: '엑스', agree: true });
+  assert.equal(su.status, 200); assert.equal(su.body.user.email, null); assert.equal(su.body.next, '/my');
+  assert.equal((await twin('/api/signup/x', { nickname: '쌍둥이', agree: true })).status, 409);
+  assert.equal((await me('/api/me')).body.user.nickname, '엑스');
+  const acc = (await me('/api/account')).body.user;
+  assert.equal(acc.has_password, false); assert.equal(acc.x.username, xa.username);
+
+  // 다시 X 로그인하면 바로 그 회원 (next 는 같은 사이트 경로만)
+  const again = client();
+  assert.equal(await viaX(again, xa, '/api/auth/x?next=%2Fnew'), '/new');
+  assert.equal((await again('/api/me')).body.user.id, su.body.user.id);
+  assert.equal(await viaX(client(), xa, '/api/auth/x?next=%2F%2Fevil.example'), '/my');
+
+  // state 가 없거나 다르거나 다시 쓰면 거부, X 에서 취소·토큰 실패
+  const s1 = client();
+  const st = new URL((await s1.go('/api/auth/x')).location).searchParams.get('state');
+  assert.equal((await s1.go('/api/auth/x/callback?code=good&state=wrong')).location, '/login?xerr=expired');
+  assert.equal((await s1.go(`/api/auth/x/callback?code=good&state=${st}`)).location, '/login?xerr=expired'); // 이미 지워짐
+  assert.equal((await client().go('/api/auth/x/callback?code=good&state=x')).location, '/login?xerr=expired');
+  const s2 = client();
+  const st2 = new URL((await s2.go('/api/auth/x')).location).searchParams.get('state');
+  assert.equal((await s2.go(`/api/auth/x/callback?error=access_denied&state=${st2}`)).location, '/login?xerr=denied');
+  assert.equal(await viaX(client(), xa, '/api/auth/x', 'bad'), '/login?xerr=fail');
+
+  // X 로만 로그인하는 회원: 마지막 로그인 방법은 끊을 수 없다 → 패스키를 등록하면 해제 가능
+  assert.equal((await me('/api/account/x/unlink', {})).status, 400);
+  const key = softPasskey(base);
+  const ro = (await me('/api/passkey/register/options', {})).body;
+  assert.equal(ro.user.name, '@' + xa.username);
+  assert.equal((await me('/api/passkey/register/verify', { response: key.create(ro) })).status, 200);
+  assert.equal((await me('/api/account/x/unlink', {})).status, 200);
+  assert.equal((await me('/api/account')).body.user.x, null);
+  assert.equal((await me('/api/account/x/unlink', {})).status, 404);
+  assert.equal((await me('/api/passkeys/delete', { id: key.id })).status, 400); // 마지막 패스키
+  // 해제한 X 로 로그인하면 새 가입으로 이어진다 → 다시 연결
+  assert.equal(await viaX(client(), xa), '/signup?via=x');
+  assert.equal(await viaX(me, xa, '/api/auth/x?link=1'), '/account?x=linked');
+  assert.equal(await viaX(me, xa, '/api/auth/x?link=1'), '/account?x=linked'); // 이미 내 것
+  assert.equal((await me('/api/passkeys/delete', { id: key.id })).status, 200);
+
+  // 이메일 회원에 X 연결 → X 로 로그인 가능
+  const email = rnd() + '@t.io';
+  const em = client();
+  await em('/api/email/code', { email });
+  assert.equal((await em('/api/signup', { email, password: 'password1', nickname: '메일', code: lastCode(email), agree: true })).status, 200);
+  assert.equal(await viaX(em, xa, '/api/auth/x?link=1'), '/account?xerr=taken'); // 남의 X
+  const xb = { id: String(Date.now()) + '2', username: 'x_' + rnd(), name: 'B' };
+  assert.equal(await viaX(em, xb, '/api/auth/x?link=1'), '/account?x=linked');
+  const xc = { id: String(Date.now()) + '3', username: 'x_' + rnd(), name: 'C' };
+  assert.equal(await viaX(em, xc, '/api/auth/x?link=1'), '/account?xerr=already'); // 회원당 X 하나
+  assert.equal((await em('/api/account')).body.user.has_password, true);
+  const byX = client();
+  assert.equal(await viaX(byX, { ...xb, username: xb.username + '_new' }), '/my');
+  assert.equal((await byX('/api/me')).body.user.email, email);
+  assert.equal((await em('/api/account')).body.user.x.username, xb.username + '_new'); // 바뀐 X 아이디 반영
+  assert.equal((await em('/api/account/x/unlink', {})).status, 200); // 비밀번호가 있으니 해제 가능
+
+  // 비로그인·익명은 연결 불가, 관리자 회원 검색에 X 아이디
+  assert.equal(await viaX(client(), xc, '/api/auth/x?link=1'), '/login?next=%2Faccount');
+  const anon = client(); await anon('/api/anon', {});
+  assert.equal(await viaX(anon, xc, '/api/auth/x?link=1'), '/login?next=%2Faccount');
+  const adm = client();
+  await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
+  const found = (await adm('/api/admin/users?q=' + encodeURIComponent(xa.username))).body;
+  assert.equal(found.length, 1); assert.equal(found[0].x_username, xa.username);
+
+  // 정지된 회원은 X 로도 로그인 불가
+  assert.equal((await adm('/api/admin/users/' + su.body.user.id, { banned: true })).status, 200);
+  assert.equal(await viaX(client(), xa), '/login?xerr=banned');
+  for (const page of ['/login', '/signup', '/account']) assert.ok((await (await fetch(base + page)).text()).includes('<script src="/app.js">'), page);
 });

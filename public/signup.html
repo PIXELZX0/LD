@@ -36,7 +36,15 @@
     <h1>회원가입</h1>
     <p class="sub">닉네임만 상담자에게 보여요.</p>
   </div>
+  <div id="xStart" hidden>
+    <p class="or"><span>이메일로 가입하기</span></p>
+  </div>
+  <div class="card soft" id="xNote" hidden>
+    <p><b id="xWho"></b> X 계정으로 가입해요. 다음부터는 <b>X로 로그인</b>하면 돼요.</p>
+    <p class="muted">이메일·비밀번호 없이 가입돼요. X 비밀번호는 Love Design에 전달되지 않아요. <a href="/signup">이메일로 가입하기</a></p>
+  </div>
   <form id="f">
+   <div id="emailPart">
     <label>이메일
       <span class="inline">
         <input name="email" id="email" type="email" required autocomplete="email">
@@ -46,6 +54,7 @@
     <label>인증번호 <input name="code" id="code" inputmode="numeric" pattern="\d{6}" maxlength="6" required autocomplete="one-time-code" placeholder="메일로 받은 6자리"></label>
     <p class="muted" id="info"></p>
     <label>비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+   </div>
     <label>닉네임 <input name="nickname" maxlength="20" required></label>
     <fieldset class="agree">
       <legend>약관 동의</legend>
@@ -63,7 +72,7 @@
         <div class="agree-body" id="ag-collect" hidden>
           <table>
             <tbody>
-              <tr><th>항목</th><td>이메일, 비밀번호(암호화), 닉네임, 상담·채팅 내용, 접속 IP·쿠키</td></tr>
+              <tr><th>항목</th><td id="agItems">이메일, 비밀번호(암호화), 닉네임, 상담·채팅 내용, 접속 IP·쿠키</td></tr>
               <tr><th>목적</th><td>회원 식별·로그인, 1:1 상담 제공과 기록 보관, 부정 이용 방지</td></tr>
               <tr><th>보유 기간</th><td><b>회원 탈퇴 시까지</b> (접속 기록은 3개월)</td></tr>
             </tbody>
@@ -103,7 +112,29 @@
  </div>
 </main>
 <script>
-boot();
+let viaX = false; // X 로 가입 중 (X 동의를 마치고 돌아온 경우)
+const xMode = new URLSearchParams(location.search).get('via') === 'x';
+const xr = xResult();
+if (xr.error) err.textContent = xr.error;
+boot().then(async ({ social }) => {
+  const { pending } = xMode ? await api('/api/signup/x') : {};
+  if (pending) {
+    viaX = true;
+    emailPart.hidden = true;
+    emailPart.querySelectorAll('input, button').forEach((x) => { x.disabled = true; }); // 숨긴 칸은 검사·전송하지 않는다
+    xNote.hidden = false;
+    xWho.textContent = '@' + pending.username;
+    f.nickname.value = [...pending.name.trim()].slice(0, 20).join('');
+    agItems.textContent = 'X 계정 고유번호·아이디(@), 닉네임, 상담·채팅 내용, 접속 IP·쿠키';
+    f.querySelector('button.primary').textContent = '동의하고 X로 가입하기';
+  } else if (xMode) {
+    err.textContent = '시간이 지났어요. X로 가입하기를 다시 눌러주세요.';
+  }
+  if (social.x && !viaX) {
+    xStart.prepend(xButton('X로 가입하기', '/api/auth/x'));
+    xStart.hidden = false;
+  }
+});
 let timer;
 send.onclick = async () => {
   err.textContent = '';
@@ -135,8 +166,16 @@ f.querySelectorAll('button.more').forEach((b) => {
 });
 f.onsubmit = async (e) => {
   e.preventDefault();
-  const body = { ...Object.fromEntries(new FormData(f)), agree: items.every((c) => c.checked) };
-  try { await api('/api/signup', body); location.href = '/my'; }
+  const agree = items.every((c) => c.checked);
+  try {
+    if (viaX) {
+      const r = await api('/api/signup/x', { nickname: f.nickname.value, agree });
+      location.href = r.next || '/my';
+    } else {
+      await api('/api/signup', { ...Object.fromEntries(new FormData(f)), agree });
+      location.href = '/my';
+    }
+  }
   catch (x) { err.textContent = x.message; }
 };
 </script>

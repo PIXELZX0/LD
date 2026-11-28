@@ -43,20 +43,29 @@
     <p class="err" id="err"></p>
     <button class="btn primary">로그인</button>
   </form>
-  <div id="pk" hidden>
+  <div id="alt" hidden>
     <p class="or"><span>또는</span></p>
-    <button type="button" class="btn wide" id="pkBtn">패스키로 로그인</button>
+    <div class="alt-login" id="altList">
+      <button type="button" class="btn wide" id="pkBtn" hidden>패스키로 로그인</button>
+    </div>
   </div>
   <p class="muted panel-foot">처음이신가요? <a href="/signup">회원가입</a> · 가입 없이 <a href="/">익명으로 이용하기</a></p>
  </div>
 </main>
 <script>
-boot().then(({ user }) => { if (user && !user.is_anonymous) location.href = '/my'; });
-const pkMsg = (x) => (x.code ? '패스키를 사용할 수 없어요. 비밀번호로 로그인해주세요.' : x.message);
-const done = () => {
+const nextPath = () => {
   const next = new URLSearchParams(location.search).get('next');
-  location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/my';
+  return next && next.startsWith('/') && !next.startsWith('//') ? next : '/my';
 };
+const xr = xResult();
+if (xr.error) err.textContent = xr.error;
+boot().then(({ user, social }) => {
+  if (user && !user.is_anonymous) return (location.href = '/my');
+  // X 로 처음 로그인하면 가입 화면으로 이어진다
+  if (social.x) { window.alt.hidden = false; altList.append(xButton('X로 로그인', '/api/auth/x?next=' + encodeURIComponent(nextPath()))); }
+});
+const pkMsg = (x) => (x.code ? '패스키를 사용할 수 없어요. 비밀번호로 로그인해주세요.' : x.message);
+const done = () => { location.href = nextPath(); };
 f.onsubmit = async (e) => {
   e.preventDefault();
   try { await api('/api/login', Object.fromEntries(new FormData(f))); done(); }
@@ -77,7 +86,8 @@ async function autofill() {
   catch (x) { if (x.name !== 'AbortError' && x.name !== 'NotAllowedError') err.textContent = pkMsg(x); }
 }
 if (browserSupportsWebAuthn()) {
-  window.pk.hidden = false;
+  window.alt.hidden = false;
+  pkBtn.hidden = false;
   autofill();
   pkBtn.onclick = async () => {
     err.textContent = '';

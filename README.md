@@ -3,6 +3,7 @@
 Node + Express + socket.io + MySQL. 익명/회원 상담, 상담자 지원·승인, 관리자 페이지, 1:1 실시간 채팅, 패스키 로그인, 상담 기록(상담자 메모·내담자 후기).
 
 - `server.js` — API, 인증, 실시간 채팅
+- `xauth.js` — X(트위터) 로그인 (OAuth 2.0 + PKCE)
 - `mail.js` — SMTP 메일 발송 (회원가입 이메일 인증)
 - `inbox.js` — 문의 메일함 (관리자 페이지 > 메일함, IMAP 읽기·SMTP 답장, HTML 메일은 격리된 iframe 으로 표시, 받은편지함을 주기적으로 확인해 새 메일 원문을 `mail_cache` 테이블에 저장, 받은 지 30일 지난 읽은 메일 저장본은 자동 삭제 — 메일 서버의 메일은 지우지 않음)
 - `db.js` / `schema.sql` — MySQL 연결, 부팅 시 테이블 자동 생성 + 관리자 시드
@@ -28,10 +29,18 @@ Node + Express + socket.io + MySQL. 익명/회원 상담, 상담자 지원·승�
 | `CONTACT_POLL_SEC` | 받은편지함 확인 주기 (초, 기본 60, 최소 15) |
 | `WEBAUTHN_RP_ID` | 패스키 RP ID, 예: `example.com` (선택, 기본은 요청 호스트) |
 | `WEBAUTHN_ORIGIN` | 패스키 origin, 예: `https://example.com` (선택, 기본은 요청 프로토콜+호스트) |
+| `X_CLIENT_ID` / `X_CLIENT_SECRET` | X 로그인 OAuth 2.0 Client ID / Secret (없으면 X 버튼이 안 보임) |
+| `X_REDIRECT_URI` | X 콜백 주소 (선택, 기본 `요청 프로토콜+호스트/api/auth/x/callback`) |
 
 `SMTP_HOST` 가 없으면 개발 환경에선 인증번호를 콘솔에 출력하고, 운영(`NODE_ENV=production`)에선 회원가입이 막혀요.
 
 패스키: 회원이 `내 정보`(/account)에서 등록하고, 로그인 화면에서 이메일 없이 로그인해요 (`@simplewebauthn`).
+X 로그인: [X 개발자 포털](https://developer.x.com)에서 앱의 User authentication settings 를 켜고
+(App permissions `Read`, Type of App `Web App` = confidential client), Callback URI 에 `https://yourloveour.design/api/auth/x/callback` 을 넣은 뒤
+OAuth 2.0 Client ID·Secret 을 env 에 넣어요. 처음 보는 X 계정은 약관 동의·닉네임을 받아 새로 가입시키고(이메일·비밀번호 없음),
+회원은 `내 정보`에서 X 를 연결·해제해요. 로그인 방법(이메일+비밀번호 / X / 패스키)이 하나도 남지 않게 되는 해제·삭제는 막아요.
+X 토큰은 프로필을 한 번 읽고 바로 폐기해요 (저장 안 함).
+
 도메인을 바꾸면 기존 패스키는 쓸 수 없어요 (RP ID 가 도메인에 묶임). 운영은 HTTPS 필수.
 
 ## 배포

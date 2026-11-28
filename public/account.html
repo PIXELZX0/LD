@@ -66,12 +66,20 @@
   <section id="anonNote" hidden>
     <div class="card soft">
       <p>지금은 <b>익명</b>으로 이용 중이에요. 이 브라우저를 벗어나면 상담 기록을 다시 볼 수 없어요.</p>
-      <p><a href="/signup">회원가입</a>하면 닉네임·비밀번호·패스키를 설정하고 어디서든 기록을 볼 수 있어요.</p>
+      <p><a href="/signup">회원가입</a>하면 닉네임·비밀번호·패스키·X 로그인을 설정하고 어디서든 기록을 볼 수 있어요.</p>
     </div>
   </section>
 
   <div id="memberOnly" hidden>
-    <section>
+    <section id="xSection" hidden>
+      <h2>X 계정 연결</h2>
+      <div class="card">
+        <div class="x-link" id="xLink"></div>
+        <p class="err" id="xMsg"></p>
+      </div>
+    </section>
+
+    <section id="pwSection">
       <h2>비밀번호 변경</h2>
       <div class="card">
         <form id="pwForm">
@@ -110,11 +118,12 @@
 const ok = (node, text) => { node.textContent = text; node.classList.add('ok'); };
 const bad = (node, text) => { node.textContent = text; node.classList.remove('ok'); };
 
+const xr = xResult();
 boot(true).then(async () => {
-  const { user } = await api('/api/account');
+  const { user, social } = await api('/api/account');
   const row = (k, v) => [el('dt', {}, k), el('dd', {}, v)];
   info.replaceChildren(
-    ...(user.is_anonymous ? row('계정', '익명') : row('이메일', user.email)),
+    ...(user.is_anonymous ? row('계정', '익명') : user.email ? row('이메일', user.email) : row('계정', 'X로 가입')),
     ...row('역할', ROLE[user.role]),
     ...row('가입일', fmt(user.created_at).slice(0, 10)));
   showProfile(user);
@@ -124,10 +133,39 @@ boot(true).then(async () => {
   }
   avPick.disabled = false;
   nickEdit.hidden = false;
-  pwUser.value = user.email;
+  pwUser.value = user.email || '';
+  pwSection.hidden = !user.has_password; // X 로 가입한 회원은 비밀번호가 없다
   memberOnly.hidden = false;
+  showX(user.x, social.x);
+  if (xr.error) bad(xMsg, xr.error);
+  else if (xr.ok === 'linked') ok(xMsg, 'X 계정을 연결했어요. 이제 X로도 로그인할 수 있어요.');
   loadPasskeys();
 });
+
+// ── X 계정: 연결하면 X로 로그인할 수 있다 ──
+function showX(x, enabled) {
+  xSection.hidden = !x && !enabled;
+  if (x) {
+    const who = el('span', { class: 'who' }, '@' + x.username);
+    who.insertAdjacentHTML('afterbegin', X_ICON);
+    xLink.replaceChildren(
+      el('div', {}, who, el('div', { class: 'muted' }, `${fmt(x.created_at)} 연결 · X로 로그인할 수 있어요`)),
+      el('button', { type: 'button', class: 'btn sm', onclick: unlinkX }, '연결 해제'));
+  } else {
+    const btn = xButton('X 계정 연결하기', '/api/auth/x?link=1');
+    btn.classList.remove('wide');
+    xLink.replaceChildren(el('p', { class: 'muted' }, 'X 계정을 연결하면 비밀번호 없이 X로 로그인할 수 있어요.'), btn);
+  }
+}
+async function unlinkX() {
+  if (!confirm('X 계정 연결을 해제할까요? 해제하면 X로는 로그인할 수 없어요.')) return;
+  try {
+    await api('/api/account/x/unlink', {});
+    const { user, social } = await api('/api/account');
+    showX(user.x, social.x);
+    ok(xMsg, 'X 계정 연결을 해제했어요.');
+  } catch (x) { bad(xMsg, x.message); }
+}
 
 // ── 닉네임: 이름 옆 '수정'을 누르면 그 자리에서 고친다 ──
 let me;

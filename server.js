@@ -10,6 +10,7 @@ const webauthn = require('@simplewebauthn/server');
 const { pool, init, url } = require('./db');
 const mail = require('./mail');
 const inbox = require('./inbox');
+const xauth = require('./xauth');
 
 const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직장', '건강', '기타'];
 const MAX_MSG = 2000;
@@ -105,7 +106,7 @@ function fail(key) {
 
 app.get('/healthz', (req, res) => res.type('text').send('ok\n'));
 
-app.get('/api/me', (req, res) => res.json({ user: pub(req.user), categories: CATEGORIES }));
+app.get('/api/me', (req, res) => res.json({ user: pub(req.user), categories: CATEGORIES, social: { x: xauth.enabled } }));
 
 app.post('/api/anon', wrap(async (req, res) => {
   if (req.user) return res.json({ user: pub(req.user) });
@@ -190,10 +191,120 @@ app.post('/api/login', wrap(async (req, res) => {
 
 app.post('/api/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// ── 내 정보 ──
-app.get('/api/account', auth(), (req, res) => {
-  res.json({ user: { ...pub(req.user), created_at: req.user.created_at } });
+// ── X 로그인·가입·계정 연결 ──
+// /api/auth/x → X 동의 화면 → /api/auth/x/callback
+//   이미 연결된 X 계정이면 그 회원으로 로그인, 처음 보는 계정이면 /signup?via=x 에서 약관 동의·닉네임을 받아 가입
+//   ?link=1 (로그인한 회원) 이면 지금 계정에 X 를 연결한다
+const X_TTL = 10 * 60 * 1000;
+const xRedirect = (req) => process.env.X_REDIRECT_URI || `${req.protocol}://${req.get('host')}/api/auth/x/callback`;
+const safeNext = (v) => (typeof v === 'string' && /^\/(?![/\\])/.test(v) ? v : '/my');
+const xAccount = async (userId) => (await q("SELECT username, created_at FROM social_accounts WHERE provider = 'x' AND user_id = ?", [userId]))[0] || null;
+const xPending = (req) => { const p = req.session.xsignup; return p && p.exp > Date.now() ? p : null; };
+const sameStr = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const saveSession = (req) => new Promise((ok, no) => req.session.save((e) => (e ? no(e) : ok())));
+
+app.get('/api/auth/x', wrap(async (req, res) => {
+  const link = req.query.link === '1';
+  if (!xauth.enabled) return res.redirect((link ? '/account' : '/login') + '?xerr=off');
+  if (link && (!req.user || req.user.is_anonymous)) return res.redirect('/login?next=%2Faccount');
+  const s = xauth.start(xRedirect(req));
+  req.session.xauth = { state: s.state, verifier: s.verifier, link: link ? req.user.id : 0, next: safeNext(req.query.next), exp: Date.now() + X_TTL };
+  await saveSession(req);
+  res.redirect(s.url);
+}));
+
+app.get('/api/auth/x/callback', wrap(async (req, res) => {
+  const st = req.session.xauth;
+  // state 는 한 번만 쓴다: 지운 것을 먼저 저장해 둔다 (응답이 끝날 때의 자동 저장을 기다리면 그 사이에 재사용될 수 있다)
+  if (st) { delete req.session.xauth; await saveSession(req); }
+  const back = st?.link ? '/account' : '/login';
+  const oops = (code, path = back) => res.redirect(`${path}?xerr=${code}`);
+  if (!st || st.exp < Date.now() || !sameStr(req.query.state, st.state)) return oops('expired');
+  if (req.query.error || typeof req.query.code !== 'string') return oops('denied'); // 사용자가 X 화면에서 취소
+  let p;
+  try { p = await xauth.profile(req.query.code, st.verifier, xRedirect(req)); } catch (e) {
+    console.warn('x login failed', e.message);
+    return oops('fail');
+  }
+  const [linked] = await q("SELECT user_id FROM social_accounts WHERE provider = 'x' AND subject = ?", [p.id]);
+
+  if (st.link) {
+    if (!req.user || req.user.id !== st.link) return oops('expired', '/login');
+    if (linked) return linked.user_id === req.user.id ? res.redirect('/account?x=linked') : oops('taken');
+    try {
+      await q("INSERT INTO social_accounts (provider, subject, user_id, username) VALUES ('x', ?, ?, ?)", [p.id, req.user.id, p.username]);
+    } catch (e) {
+      if (e.code === 'ER_DUP_ENTRY') return oops(await xAccount(req.user.id) ? 'already' : 'taken');
+      throw e;
+    }
+    return res.redirect('/account?x=linked');
+  }
+
+  if (linked) {
+    const user = await getUser(linked.user_id);
+    if (!user) return oops('banned');
+    await q("UPDATE social_accounts SET username = ? WHERE provider = 'x' AND subject = ?", [p.username, p.id]); // X 아이디는 바뀔 수 있다
+    await login(req, user);
+    return res.redirect(st.next);
+  }
+  // 처음 보는 X 계정: 가입 화면에서 약관 동의·닉네임을 받는다 (X 이름은 닉네임 기본값으로만 쓰고 저장하지 않음)
+  req.session.xsignup = { id: p.id, username: p.username, name: p.name, next: st.next, exp: Date.now() + X_TTL };
+  await saveSession(req);
+  res.redirect('/signup?via=x');
+}));
+
+app.get('/api/signup/x', (req, res) => {
+  const p = xPending(req);
+  res.json({ pending: p ? { username: p.username, name: p.name } : null });
 });
+
+app.post('/api/signup/x', wrap(async (req, res) => {
+  const p = xPending(req);
+  if (!p) return res.status(400).json({ error: '시간이 지났어요. X로 가입하기를 다시 눌러주세요.' });
+  const nickname = String(req.body.nickname || '').trim();
+  if (nickname.length < 1 || nickname.length > 20) return res.status(400).json({ error: '닉네임은 1~20자로 해주세요.' });
+  if (req.body.agree !== true) return res.status(400).json({ error: '필수 약관에 모두 동의해주세요.' });
+  const conn = await pool.getConnection();
+  let id;
+  try {
+    await conn.beginTransaction();
+    const [r] = await conn.query('INSERT INTO users (nickname, terms_ver, agreed_at) VALUES (?, ?, NOW())', [nickname, TERMS_VER]);
+    id = r.insertId;
+    await conn.query("INSERT INTO social_accounts (provider, subject, user_id, username) VALUES ('x', ?, ?, ?)", [p.id, id, p.username]);
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    if (e.code === 'ER_DUP_ENTRY') {
+      delete req.session.xsignup;
+      return res.status(409).json({ error: '이미 가입된 X 계정이에요. X로 로그인해주세요.' });
+    }
+    throw e;
+  } finally { conn.release(); }
+  const user = await getUser(id);
+  await login(req, user); // 세션을 새로 만들면서 xsignup 도 사라진다
+  res.json({ user: pub(user), next: p.next });
+}));
+
+// 로그인할 방법이 하나도 남지 않게 되는 변경은 막는다 (이메일+비밀번호 / X / 패스키)
+async function loginMethods(user) {
+  const [[pk], x] = await Promise.all([q('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?', [user.id]), xAccount(user.id)]);
+  return { password: !!(user.email && user.password_hash), x: !!x, passkeys: Number(pk.n) };
+}
+
+app.post('/api/account/x/unlink', auth(), wrap(async (req, res) => {
+  const m = await loginMethods(req.user);
+  if (!m.x) return res.status(404).json({ error: '연결된 X 계정이 없어요.' });
+  if (!m.password && !m.passkeys)
+    return res.status(400).json({ error: 'X 말고는 로그인할 방법이 없어서 연결을 해제할 수 없어요. 먼저 패스키를 등록해주세요.' });
+  await q("DELETE FROM social_accounts WHERE provider = 'x' AND user_id = ?", [req.user.id]);
+  res.json({ ok: true });
+}));
+
+// ── 내 정보 ──
+app.get('/api/account', auth(), wrap(async (req, res) => {
+  const x = req.user.is_anonymous ? null : await xAccount(req.user.id);
+  res.json({ user: { ...pub(req.user), created_at: req.user.created_at, has_password: !!req.user.password_hash, x }, social: { x: xauth.enabled } });
+}));
 
 app.post('/api/account/nickname', auth(), wrap(async (req, res) => {
   if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 닉네임을 바꿀 수 있어요.' });
@@ -305,7 +416,7 @@ app.post('/api/passkey/register/options', auth(), member, wrap(async (req, res) 
     rpName: 'Love Design',
     rpID: rp(req).rpID,
     userID: userHandle(req.user.id),
-    userName: req.user.email,
+    userName: req.user.email || (await xAccount(req.user.id).then((x) => x && '@' + x.username)) || req.user.nickname,
     userDisplayName: req.user.nickname,
     attestationType: 'none',
     excludeCredentials: mine.map((p) => ({ id: p.id, transports: p.transports ? p.transports.split(',') : undefined })),
@@ -345,6 +456,9 @@ app.get('/api/passkeys', auth(), member, wrap(async (req, res) => {
 }));
 
 app.post('/api/passkeys/delete', auth(), member, wrap(async (req, res) => {
+  const m = await loginMethods(req.user);
+  if (!m.password && !m.x && m.passkeys <= 1)
+    return res.status(400).json({ error: '마지막 로그인 방법이라 삭제할 수 없어요. 먼저 X 계정을 연결해주세요.' });
   const r = await q('DELETE FROM passkeys WHERE id = ? AND user_id = ?', [String(req.body.id || ''), req.user.id]);
   if (!r.affectedRows) return res.status(404).json({ error: '없는 패스키예요.' });
   res.json({ ok: true });
@@ -549,19 +663,20 @@ app.post('/api/admin/applications/:id/:decision', admin, wrap(async (req, res) =
   res.json({ ok: true });
 }));
 
-// 검색(닉네임·이메일) + 필터: kind=member|guest(익명), role=user|counselor|admin
+// 검색(닉네임·이메일·X 아이디) + 필터: kind=member|guest(익명), role=user|counselor|admin
 app.get('/api/admin/users', admin, wrap(async (req, res) => {
   const where = [], args = [];
   const s = String(req.query.q || '').trim().slice(0, 100);
   if (s) {
     const like = '%' + s.replace(/[\\%_]/g, '\\$&') + '%'; // % _ 는 글자 그대로 찾는다
-    where.push('(nickname LIKE ? OR email LIKE ?)'); args.push(like, like);
+    where.push('(u.nickname LIKE ? OR u.email LIKE ? OR sx.username LIKE ?)'); args.push(like, like, like);
   }
-  if (req.query.kind === 'member') where.push('is_anonymous = 0');
-  else if (req.query.kind === 'guest') where.push('is_anonymous = 1');
-  if (['user', 'counselor', 'admin'].includes(req.query.role)) { where.push('role = ?'); args.push(req.query.role); }
-  res.json(await q(`SELECT id, email, nickname, role, is_anonymous, banned, created_at FROM users
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT 500`, args));
+  if (req.query.kind === 'member') where.push('u.is_anonymous = 0');
+  else if (req.query.kind === 'guest') where.push('u.is_anonymous = 1');
+  if (['user', 'counselor', 'admin'].includes(req.query.role)) { where.push('u.role = ?'); args.push(req.query.role); }
+  res.json(await q(`SELECT u.id, u.email, u.nickname, u.role, u.is_anonymous, u.banned, u.created_at, sx.username AS x_username
+    FROM users u LEFT JOIN social_accounts sx ON sx.user_id = u.id AND sx.provider = 'x'
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY u.id DESC LIMIT 500`, args));
 }));
 
 app.post('/api/admin/users/:id', admin, wrap(async (req, res) => {

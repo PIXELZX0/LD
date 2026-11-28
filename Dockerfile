@@ -3,7 +3,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY server.js db.js mail.js inbox.js schema.sql ./
+COPY server.js db.js mail.js inbox.js xauth.js schema.sql ./
 COPY public ./public
 EXPOSE 3000
 USER node

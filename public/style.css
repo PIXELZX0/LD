@@ -188,6 +188,13 @@ main.chat { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column
 .inline .btn { white-space: nowrap; min-height: 48px; }
 
 .btn.wide { width: 100%; }
+.btn.x { background: #000; border-color: #000; color: #fff; gap: 8px; }
+.btn.x:hover { background: #26262b; border-color: #26262b; }
+.btn.x svg { flex: none; }
+.alt-login { display: grid; gap: 10px; }
+.x-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.x-link > :first-child { flex: 1 1 240px; min-width: 0; margin: 0; }
+.x-link .who { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; overflow-wrap: anywhere; }
 .or { display: flex; align-items: center; gap: 12px; margin: 20px 0 16px; color: var(--muted); font-size: .82rem; }
 .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .err.ok { color: var(--ink); }

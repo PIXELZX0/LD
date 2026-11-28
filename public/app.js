@@ -91,7 +91,8 @@ function topbar(user) {
 
 // 상단바를 그리고 로그인 정보를 돌려준다. need: true(로그인 필요) 또는 역할 배열
 async function boot(need) {
-  const { user, categories } = await api('/api/me');
+  const me = await api('/api/me');
+  const { user } = me;
   document.body.prepend(topbar(user));
   if (!document.querySelector('main.chat')) {
     document.body.append(el('footer', { class: 'foot' }, el('div', { class: 'foot-in' },
@@ -103,7 +104,36 @@ async function boot(need) {
   }
   if (need && !user) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('login'); }
   if (Array.isArray(need) && !need.includes(user.role)) { document.querySelector('main').replaceChildren(el('p', {}, '권한이 없어요.')); throw new Error('role'); }
-  return { user, categories };
+  return me; // { user, categories, social }
+}
+
+// ── X 로그인 ──
+const X_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
+const XERR = {
+  off: 'X 로그인이 아직 준비되지 않았어요.',
+  denied: 'X 로그인을 취소했어요.',
+  expired: '시간이 지났거나 잘못된 요청이에요. 다시 시도해주세요.',
+  fail: 'X와 연결하지 못했어요. 잠시 후 다시 시도해주세요.',
+  banned: '이용이 정지된 계정이에요.',
+  taken: '이 X 계정은 이미 다른 회원에게 연결돼 있어요. 그 계정으로 X 로그인해주세요.',
+  already: '이미 다른 X 계정이 연결돼 있어요. 연결을 해제한 뒤 다시 시도해주세요.',
+};
+// X 에서 돌아온 결과(?xerr= / ?x=)를 읽고 주소창에서 지운다
+function xResult() {
+  const sp = new URLSearchParams(location.search);
+  const r = { error: sp.has('xerr') ? (XERR[sp.get('xerr')] || XERR.fail) : '', ok: sp.get('x') };
+  if (sp.has('xerr') || sp.has('x')) {
+    sp.delete('xerr'); sp.delete('x');
+    history.replaceState(null, '', location.pathname + (String(sp) ? '?' + sp : '') + location.hash);
+  }
+  return r;
+}
+// X 로 시작하는 링크 버튼 (서버가 X 동의 화면으로 넘긴다)
+function xButton(text, href) {
+  const a = el('a', { class: 'btn wide x', href });
+  a.insertAdjacentHTML('afterbegin', X_ICON); // 고정된 아이콘 문자열만 넣는다
+  a.append(text);
+  return a;
 }
 
 function fmt(d) { return d ? d.slice(0, 16).replace('T', ' ') : ''; }
