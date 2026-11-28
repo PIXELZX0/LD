@@ -319,3 +319,36 @@ label.check.all { font-weight: 700; font-size: .95rem; padding: 12px 0; border-b
 .legal tbody tr:last-child th { border-bottom: 0; }
 .legal :target { scroll-margin-top: 96px; }
 @media (max-width: 720px) { .agree-body { margin-left: 0; } }
+
+/* 관리자 문의 메일함 */
+.mail-head { margin-bottom: 14px; }
+.mail-head p { margin: 0; }
+.mail-head .actions { margin: 0; }
+.sub-tabs { margin-bottom: 12px; }
+.mail-list { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: 12px; }
+.mail-row {
+  display: grid; grid-template-columns: minmax(120px, 220px) 1fr auto; gap: 4px 16px; align-items: baseline;
+  width: 100%; padding: 14px 18px; border: 0; border-top: 1px solid var(--line); background: #fff;
+  font: inherit; font-size: .9rem; color: var(--muted); text-align: left; cursor: pointer; transition: background .15s;
+}
+.mail-row:first-child { border-top: 0; }
+.mail-row:hover { background: var(--tint); }
+.mail-row:focus-visible { outline: 2px solid var(--rose); outline-offset: -2px; }
+.mail-who, .mail-subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mail-subj { color: var(--ink); display: flex; gap: 8px; align-items: baseline; }
+.mail-subj .tag { flex: none; }
+.mail-date { font-size: .8rem; white-space: nowrap; }
+.mail-row.unread .mail-who, .mail-row.unread .mail-subj { color: var(--ink); font-weight: 700; }
+.mail-row.unread .mail-who::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rose); margin-right: 8px; vertical-align: middle; }
+dialog.sheet.wide { width: min(760px, calc(100% - 32px)); }
+.mail-meta { font-size: .85rem; margin: 0; gap: 4px 16px; }
+.mail-meta dd { font-weight: 500; }
+.mail-body { max-height: 46vh; overflow: auto; padding: 16px 18px; background: var(--tint); border-radius: 12px; font-size: .92rem; line-height: 1.65; }
+.mail-att { display: flex; flex-wrap: wrap; gap: 6px; }
+.mail-att:empty { display: none; }
+.mail-act { flex-wrap: nowrap; }
+.mail-act .btn.primary { flex: 1; }
+@media (max-width: 720px) {
+  .mail-row { grid-template-columns: 1fr auto; }
+  .mail-subj { grid-column: 1 / -1; grid-row: 2; }
+}

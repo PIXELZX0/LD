@@ -14,15 +14,43 @@
   <div class="page-head">
     <span class="eyebrow">ADMIN</span>
     <h1>관리자</h1>
-    <p class="sub">상담자 지원서 심사, 회원 관리, 전체 상담 현황을 확인해요.</p>
+    <p class="sub">상담자 지원서 심사, 회원 관리, 전체 상담 현황, 문의 메일을 확인해요.</p>
   </div>
   <div class="tabs" role="tablist">
     <button class="btn sm" role="tab" data-t="apps">상담자 지원</button>
     <button class="btn sm" role="tab" data-t="users">회원</button>
     <button class="btn sm" role="tab" data-t="cons">전체 상담</button>
+    <button class="btn sm" role="tab" data-t="mail">메일함 <span class="count" id="unseen" hidden></span></button>
   </div>
   <div id="out"></div>
 </main>
+<dialog class="sheet wide" id="readDlg" aria-labelledby="readH">
+  <form id="replyF">
+    <div class="row"><h2 id="readH"></h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
+    <dl class="info mail-meta" id="readMeta"></dl>
+    <div class="mail-body pre" id="readBody"></div>
+    <div class="mail-att" id="readAtt"></div>
+    <div id="replyBox">
+      <label>답장 <span class="muted" id="replyTo"></span><textarea name="body" maxlength="20000" required placeholder="답장 내용을 적어주세요. 원문은 아래에 인용돼요."></textarea></label>
+    </div>
+    <p class="err" id="readErr"></p>
+    <div class="row mail-act">
+      <button type="button" class="btn" id="delBtn">휴지통으로</button>
+      <button class="btn primary" id="replyBtn">답장 보내기</button>
+    </div>
+  </form>
+</dialog>
+<dialog class="sheet wide" id="composeDlg" aria-labelledby="composeH">
+  <form id="composeF">
+    <div class="row"><h2 id="composeH">새 메일</h2><button type="button" class="x" data-close aria-label="닫기">×</button></div>
+    <p class="muted" id="composeFrom"></p>
+    <label>받는 사람 <input name="to" required placeholder="name@example.com (여러 명은 쉼표로)" autocomplete="off"></label>
+    <label>제목 <input name="subject" maxlength="200" required></label>
+    <label>내용 <textarea name="body" maxlength="20000" required></textarea></label>
+    <p class="err" id="composeErr"></p>
+    <button class="btn primary">보내기</button>
+  </form>
+</dialog>
 <script>
 const APP = { pending: '심사중', approved: '승인됨', rejected: '거절됨' };
 let me;
@@ -61,6 +89,127 @@ const views = {
         el('td', { class: 'nowrap' }, c.rating ? stars(c.rating) : '-'), el('td', { class: 'nowrap' }, fmt(c.created_at))))));
   },
 };
+
+// ── 문의 메일함 ──
+const BOX = { inbox: '받은편지함', sent: '보낸편지함', trash: '휴지통' };
+const mailState = { box: 'inbox', page: 0, items: [], more: false, cfg: null, open: null };
+const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '');
+const who = (a) => (a ? (a.name ? `${a.name} <${a.address}>` : a.address) : '(알 수 없음)');
+const short = (a) => (a ? a.name || a.address : '(알 수 없음)');
+const kb = (n) => (n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + 'KB' : (n / 1048576).toFixed(1) + 'MB');
+function setUnseen(n) { unseen.hidden = !n; unseen.textContent = n; }
+
+let mailSeq = 0; // 메일함을 빠르게 바꿔 누르면 늦게 온 옛 응답은 버린다
+async function loadMail(reset) {
+  const seq = ++mailSeq;
+  if (reset) mailState.page = 0;
+  const r = await api(`/api/admin/mail/${mailState.box}?page=${mailState.page}`);
+  if (seq !== mailSeq) return r;
+  mailState.items = reset ? r.items : [...mailState.items, ...r.items];
+  mailState.more = r.more;
+  if (mailState.box === 'inbox') setUnseen(r.unseen);
+  return r;
+}
+function mailList() {
+  const { box, items } = mailState;
+  if (!items.length) return el('p', { class: 'empty' }, `${BOX[box]}이 비어 있어요.`);
+  return el('div', { class: 'mail-list' }, items.map((m) => el('button', {
+    type: 'button', class: 'mail-row' + (m.seen || box !== 'inbox' ? '' : ' unread'), onclick: () => openMail(m.uid),
+  },
+    el('span', { class: 'mail-who' }, box === 'sent' ? '받는 사람: ' + (m.to.map(short).join(', ') || '-') : short(m.from)),
+    el('span', { class: 'mail-subj' }, m.subject || '(제목 없음)', m.answered ? el('span', { class: 'tag' }, '답장함') : null),
+    el('span', { class: 'mail-date' }, when(m.date)))));
+}
+views.mail = async function () {
+  mailState.cfg ||= await api('/api/admin/mail');
+  if (!mailState.cfg.enabled) {
+    return el('div', { class: 'card soft' }, el('h3', {}, '메일함이 아직 연결되지 않았어요'),
+      el('p', { class: 'muted' }, '서버 환경변수에 문의 메일 계정을 넣으면 여기서 바로 읽고 답장할 수 있어요: ',
+        el('code', {}, 'CONTACT_MAIL_USER'), ', ', el('code', {}, 'CONTACT_MAIL_PASS'),
+        ' (IMAP 서버는 ', el('code', {}, 'CONTACT_IMAP_HOST'), ', 없으면 SMTP_HOST 를 써요)'));
+  }
+  const listBox = el('div', {}, el('p', { class: 'muted' }, '불러오는 중…'));
+  const moreBtn = el('button', { type: 'button', class: 'btn wide', hidden: true, onclick: async () => {
+    moreBtn.disabled = true; mailState.page++;
+    try { await loadMail(); listBox.replaceChildren(mailList()); } catch (x) { alert(x.message); }
+    moreBtn.disabled = false; moreBtn.hidden = !mailState.more;
+  } }, '더 보기');
+  const refresh = async () => {
+    try { await loadMail(true); listBox.replaceChildren(mailList()); moreBtn.hidden = !mailState.more; }
+    catch (x) { listBox.replaceChildren(el('p', { class: 'err' }, x.message)); moreBtn.hidden = true; }
+  };
+  mailState.refresh = refresh;
+  mailState.render = () => listBox.replaceChildren(mailList());
+  const boxTabs = el('div', { class: 'tabs sub-tabs', role: 'tablist' }, Object.entries(BOX).map(([k, v]) => el('button', {
+    type: 'button', class: 'btn sm', role: 'tab', 'aria-selected': String(k === mailState.box),
+    onclick: (e) => { mailState.box = k; boxTabs.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b === e.currentTarget))); refresh(); },
+  }, v)));
+  refresh();
+  return el('div', {},
+    el('div', { class: 'row mail-head' },
+      el('p', { class: 'muted' }, el('b', {}, mailState.cfg.address), ' 로 온 문의를 관리자 모두가 함께 봐요.'),
+      el('span', { class: 'actions' },
+        el('button', { type: 'button', class: 'btn sm', onclick: refresh }, '새로고침'),
+        el('button', { type: 'button', class: 'btn sm primary', onclick: compose }, '새 메일'))),
+    boxTabs, listBox, moreBtn);
+};
+
+async function openMail(uid) {
+  const box = mailState.box;
+  readErr.textContent = ''; replyF.reset();
+  readH.textContent = '불러오는 중…'; readMeta.replaceChildren(); readBody.textContent = ''; readAtt.replaceChildren();
+  replyBox.hidden = replyBtn.hidden = box !== 'inbox';
+  delBtn.textContent = box === 'trash' ? '완전히 삭제' : '휴지통으로';
+  readDlg.showModal();
+  try {
+    const m = await api(`/api/admin/mail/${box}/${uid}`);
+    mailState.open = { box, uid };
+    readH.textContent = m.subject || '(제목 없음)';
+    const row = (k, v) => (v ? [el('dt', {}, k), el('dd', {}, v)] : []);
+    readMeta.replaceChildren(...row('보낸 사람', who(m.from)), ...row('받는 사람', m.to.map(who).join(', ')),
+      ...row('참조', m.cc.map(who).join(', ')), ...row('날짜', m.date ? new Date(m.date).toLocaleString('ko-KR') : ''));
+    readBody.textContent = m.text || '(본문 없음)';
+    readAtt.replaceChildren(...m.attachments.map((a) => el('a', { class: 'btn sm', href: `/api/admin/mail/${box}/${uid}/att/${a.i}`, download: a.filename }, `📎 ${a.filename} · ${kb(a.size)}`)));
+    replyTo.textContent = '→ ' + who(m.replyTo || m.from) + (m.answered ? ' · 이미 답장했어요' : '');
+    const it = mailState.items.find((x) => x.uid === uid);
+    if (box === 'inbox' && it && !it.seen) { it.seen = true; mailState.render?.(); setUnseen(Math.max(0, Number(unseen.textContent) - 1)); }
+  } catch (x) { readH.textContent = '메일'; readErr.textContent = x.message; replyBox.hidden = replyBtn.hidden = true; }
+}
+replyF.onsubmit = async (e) => {
+  e.preventDefault();
+  const { box, uid } = mailState.open || {};
+  if (!uid) return;
+  replyBtn.disabled = true; readErr.textContent = '';
+  try {
+    await api(`/api/admin/mail/${box}/${uid}/reply`, { body: replyF.body.value });
+    readDlg.close(); mailState.refresh?.();
+  } catch (x) { readErr.textContent = x.message; }
+  replyBtn.disabled = false;
+};
+delBtn.onclick = async () => {
+  const { box, uid } = mailState.open || {};
+  if (!uid || !confirm(box === 'trash' ? '이 메일을 완전히 삭제할까요? 되돌릴 수 없어요.' : '이 메일을 휴지통으로 옮길까요?')) return;
+  try { await api(`/api/admin/mail/${box}/${uid}/delete`, {}); readDlg.close(); mailState.refresh?.(); }
+  catch (x) { readErr.textContent = x.message; }
+};
+function compose() {
+  composeF.reset(); composeErr.textContent = '';
+  composeFrom.textContent = `보내는 사람: ${mailState.cfg.address}`;
+  composeDlg.showModal(); composeF.to.focus();
+}
+composeF.onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = composeF.querySelector('.btn.primary'); btn.disabled = true; composeErr.textContent = '';
+  try {
+    await api('/api/admin/mail/send', Object.fromEntries(new FormData(composeF)));
+    composeDlg.close();
+    if (mailState.box === 'sent') mailState.refresh?.();
+  } catch (x) { composeErr.textContent = x.message; }
+  btn.disabled = false;
+};
+document.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => b.closest('dialog').close()));
+document.querySelectorAll('dialog.sheet').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
+
 let cur = 'apps';
 async function show(t) {
   cur = t;
@@ -68,7 +217,12 @@ async function show(t) {
   out.replaceChildren(await views[t]());
 }
 document.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => show(b.dataset.t)));
-boot(['admin']).then(({ user }) => { me = user; show('apps'); });
+boot(['admin']).then(({ user }) => {
+  me = user;
+  show(location.hash === '#mail' ? 'mail' : 'apps');
+  // 안 읽은 문의 수를 탭에 표시
+  api('/api/admin/mail').then((c) => c.enabled && api('/api/admin/mail/inbox').then((r) => setUnseen(r.unseen))).catch(() => {});
+});
 </script>
 </body>
 </html>

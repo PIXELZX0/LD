@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const webauthn = require('@simplewebauthn/server');
 const { pool, init, url } = require('./db');
 const mail = require('./mail');
+const inbox = require('./inbox');
 
 const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직장', '건강', '기타'];
 const MAX_MSG = 2000;
@@ -20,7 +21,10 @@ const MAX_AVATAR = 512 * 1024; // 브라우저에서 줄여 보내므로 보통 
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '20kb' }));
+// 메일 답장·작성은 본문이 길 수 있어서 따로 넉넉하게 받는다
+const jsonSmall = express.json({ limit: '20kb' });
+const jsonMail = express.json({ limit: '200kb' });
+app.use((req, res, next) => (req.path.startsWith('/api/admin/mail') ? jsonMail : jsonSmall)(req, res, next));
 
 const u = new URL(url);
 const store = new MySQLStore({
@@ -562,6 +566,61 @@ app.post('/api/admin/users/:id', admin, wrap(async (req, res) => {
 
 app.get('/api/admin/consultations', admin, wrap(async (req, res) => {
   res.json(await q(`${LIST} ORDER BY c.id DESC LIMIT 500`));
+}));
+
+// ── 문의 메일함 (contact@) ──
+const MAX_MAIL = 20000;
+const BOXES = ['inbox', 'sent', 'trash'];
+const mailbox = (req, res, next) => {
+  if (!inbox.enabled) return res.status(503).json({ error: '메일함이 설정되지 않았어요. CONTACT_MAIL_USER / CONTACT_MAIL_PASS 환경변수를 넣어주세요.' });
+  if (req.params.box && !BOXES.includes(req.params.box)) return res.status(404).json({ error: '없는 메일함이에요.' });
+  if (req.params.uid && !/^\d{1,10}$/.test(req.params.uid)) return res.status(404).json({ error: '메일을 찾을 수 없어요.' });
+  next();
+};
+// IMAP·SMTP 오류를 관리자에게 알아볼 수 있게 돌려준다 (내부 오류 문구는 숨김)
+const mailWrap = (fn) => wrap(async (req, res) => {
+  try { await fn(req, res); } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    console.error('mailbox', e);
+    res.status(502).json({ error: e.authenticationFailed ? '메일 서버 로그인에 실패했어요. 계정 설정을 확인해주세요.' : '메일 서버와 통신하지 못했어요. 잠시 후 다시 해주세요.' });
+  }
+});
+const mailText = (v) => String(v ?? '').replace(/\r\n/g, '\n');
+const recipients = (v) => String(v || '').split(/[,;\s]+/).map(normEmail).filter(Boolean);
+
+app.get('/api/admin/mail', admin, (req, res) => res.json({ enabled: inbox.enabled, address: inbox.address || null }));
+app.get('/api/admin/mail/:box', admin, mailbox, mailWrap(async (req, res) => {
+  const page = Math.min(Math.max(parseInt(req.query.page, 10) || 0, 0), 1000);
+  res.json(await inbox.list(req.params.box, page));
+}));
+app.get('/api/admin/mail/:box/:uid', admin, mailbox, mailWrap(async (req, res) => {
+  res.json(await inbox.get(req.params.box, Number(req.params.uid)));
+}));
+app.get('/api/admin/mail/:box/:uid/att/:i', admin, mailbox, mailWrap(async (req, res) => {
+  const a = await inbox.attachment(req.params.box, Number(req.params.uid), Number(req.params.i) || 0);
+  // 메일 첨부는 신뢰할 수 없다 → 브라우저가 열지 않고 내려받게만 한다
+  res.attachment(a.filename).type('application/octet-stream')
+    .set({ 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" }).send(a.content);
+}));
+app.post('/api/admin/mail/send', admin, mailbox, mailWrap(async (req, res) => {
+  const to = recipients(req.body.to);
+  const subject = String(req.body.subject || '').trim();
+  const text = mailText(req.body.body).trimEnd();
+  if (!to.length || to.length > 10 || !to.every((x) => EMAIL_RE.test(x) && x.length <= 190)) return res.status(400).json({ error: '받는 사람 이메일을 확인해주세요. (최대 10명, 쉼표로 구분)' });
+  if (!subject || subject.length > 200) return res.status(400).json({ error: '제목은 1~200자로 해주세요.' });
+  if (!text.trim() || text.length > MAX_MAIL) return res.status(400).json({ error: `본문은 1~${MAX_MAIL}자로 해주세요.` });
+  await inbox.send({ to, subject, text });
+  res.json({ ok: true });
+}));
+app.post('/api/admin/mail/:box/:uid/reply', admin, mailbox, mailWrap(async (req, res) => {
+  const text = mailText(req.body.body).trimEnd();
+  if (!text.trim() || text.length > MAX_MAIL) return res.status(400).json({ error: `답장은 1~${MAX_MAIL}자로 해주세요.` });
+  await inbox.reply(req.params.box, Number(req.params.uid), text);
+  res.json({ ok: true });
+}));
+app.post('/api/admin/mail/:box/:uid/delete', admin, mailbox, mailWrap(async (req, res) => {
+  await inbox.remove(req.params.box, Number(req.params.uid));
+  res.json({ ok: true });
 }));
 
 app.use('/api', (req, res) => res.status(404).json({ error: '없는 주소예요.' }));

@@ -114,6 +114,11 @@ test('전체 흐름', async () => {
   const adm = client();
   assert.equal((await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD })).status, 200);
   const apps = (await adm('/api/admin/applications')).body;
+  // 문의 메일함: 관리자만, 계정 env 가 없으면 503 (CI 에는 메일 서버가 없다)
+  assert.equal((await coun('/api/admin/mail/inbox')).status, 403);
+  assert.equal((await adm('/api/admin/mail')).body.enabled, false);
+  assert.equal((await adm('/api/admin/mail/inbox')).status, 503);
+  assert.equal((await adm('/api/admin/mail/send', { to: 'a@b.co', subject: 's', body: 'b' })).status, 503);
   const mine = apps.find((x) => x.nickname === '상담이' && x.status === 'pending');
   assert.equal((await adm(`/api/admin/applications/${mine.id}/approve`, {})).status, 200);
   assert.equal((await coun('/api/me')).body.user.role, 'counselor');
