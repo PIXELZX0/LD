@@ -591,7 +591,9 @@ const recipients = (v) => String(v || '').split(/[,;\s]+/).map(normEmail).filter
 app.get('/api/admin/mail', admin, (req, res) => res.json({ enabled: inbox.enabled, address: inbox.address || null }));
 app.get('/api/admin/mail/:box', admin, mailbox, mailWrap(async (req, res) => {
   const page = Math.min(Math.max(parseInt(req.query.page, 10) || 0, 0), 1000);
-  res.json(await inbox.list(req.params.box, page));
+  const q = String(req.query.q || '').replace(/[\x00-\x1f\x7f]/g, ' ').trim();
+  if (q.length > 100) return res.status(400).json({ error: '검색어는 100자까지 넣을 수 있어요.' });
+  res.json(await inbox.list(req.params.box, page, q));
 }));
 app.get('/api/admin/mail/:box/:uid', admin, mailbox, mailWrap(async (req, res) => {
   res.json(await inbox.get(req.params.box, Number(req.params.uid)));

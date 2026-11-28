@@ -8,7 +8,7 @@
 }
 .top-in {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  max-width: var(--max, 1040px); margin: 0 auto; padding: 12px var(--gutter, 24px); min-height: 64px;
+  max-width: var(--max, 1200px); margin: 0 auto; padding: 12px var(--gutter, 16px); min-height: 64px;
 }
 .top a { color: inherit; }
 .logo { font-weight: 900; font-size: 1.35rem; letter-spacing: -.04em; text-decoration: none; white-space: nowrap; }
@@ -33,7 +33,7 @@
 .top .cta:focus-visible { outline: 2px solid #e14b62; outline-offset: 2px; }
 
 @media (max-width: 720px) {
-  .top { --gutter: 18px; }
+  .top { --gutter: 14px; }
   .top-in { flex-wrap: wrap; padding-top: 10px; padding-bottom: 6px; gap: 4px 12px; }
   .logo small { display: none; }
   .nav { order: 3; width: calc(100% + var(--gutter) * 2); margin: 0 calc(var(--gutter) * -1); padding: 0 var(--gutter) 4px; overflow-x: auto; scrollbar-width: none; }

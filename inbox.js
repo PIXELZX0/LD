@@ -66,25 +66,38 @@ const bodyText = (p) => (p.text || (p.html ? convert(p.html, { wordwrap: false, 
 const addr = (a) => a && { name: a.name || '', address: a.address || '' };
 const addrs = (v) => (v?.value || []).map(addr);
 
-async function list(box, page = 0) {
+const summary = (m) => ({
+  uid: m.uid,
+  from: addr(m.envelope.from?.[0]),
+  to: (m.envelope.to || []).map(addr),
+  subject: m.envelope.subject || '',
+  date: m.envelope.date,
+  seen: m.flags.has('\\Seen'),
+  answered: m.flags.has('\\Answered'),
+  size: m.size,
+});
+const SUMMARY = { uid: true, flags: true, envelope: true, size: true };
+
+// q 가 있으면 보낸 사람·받는 사람·제목·본문에서 찾는다 (IMAP SEARCH, 한글은 CHARSET UTF-8 로 보낸다)
+async function list(box, page = 0, q = '') {
   return withBox(box, async (client) => {
+    const unseen = box === 'inbox' && client.mailbox.exists ? (await client.search({ seen: false }, { uid: true }) || []).length : 0;
+    if (q) {
+      const uids = ((await client.search({ or: [{ from: q }, { to: q }, { cc: q }, { subject: q }, { body: q }] }, { uid: true })) || [])
+        .sort((a, b) => b - a); // UID 가 클수록 나중에 온 메일
+      const pick = uids.slice(page * PAGE, (page + 1) * PAGE);
+      const items = [];
+      if (pick.length) for await (const m of client.fetch(pick.join(','), SUMMARY, { uid: true })) items.push(summary(m));
+      items.sort((a, b) => b.uid - a.uid);
+      return { total: uids.length, unseen, items, more: uids.length > (page + 1) * PAGE };
+    }
     const total = client.mailbox.exists;
-    const unseen = box === 'inbox' && total ? (await client.search({ seen: false }, { uid: true }) || []).length : 0;
     const end = total - page * PAGE;
     const items = [];
     if (end > 0) {
       const start = Math.max(1, end - PAGE + 1);
-      for await (const m of client.fetch(`${start}:${end}`, { uid: true, flags: true, envelope: true, size: true })) {
-        items.push({
-          uid: m.uid,
-          from: addr(m.envelope.from?.[0]),
-          to: (m.envelope.to || []).map(addr),
-          subject: m.envelope.subject || '',
-          date: m.envelope.date,
-          seen: m.flags.has('\\Seen'),
-          answered: m.flags.has('\\Answered'),
-          size: m.size,
-        });
+      for await (const m of client.fetch(`${start}:${end}`, SUMMARY)) {
+        items.push(summary(m));
       }
     }
     items.reverse(); // 최신 메일 먼저
