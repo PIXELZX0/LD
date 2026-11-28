@@ -20,6 +20,18 @@
   <section>
     <h2>기본 정보</h2>
     <div class="card">
+      <div class="avatar-edit" id="avBox" hidden>
+        <span id="avView"></span>
+        <div>
+          <div class="acts">
+            <button type="button" class="btn sm" id="avPick">사진 바꾸기</button>
+            <button type="button" class="btn sm" id="avDel" hidden>사진 삭제</button>
+          </div>
+          <p class="muted">상담 중인 상대에게만 보여요. 가운데를 정사각형으로 잘라 저장해요.</p>
+          <input type="file" id="avFile" accept="image/jpeg,image/png,image/webp,image/*" hidden>
+        </div>
+      </div>
+      <p class="err" id="avMsg" hidden></p>
       <dl class="info" id="info"></dl>
       <form id="nickForm" hidden>
         <label>닉네임 <span class="muted">상담자에게 보이는 이름이에요.</span>
@@ -88,6 +100,8 @@ boot(true).then(async () => {
     ...row('역할', ROLE[user.role]),
     ...row('가입일', fmt(user.created_at).slice(0, 10)));
   if (user.is_anonymous) { anonNote.hidden = false; return; }
+  showAvatar(user);
+  avBox.hidden = false;
   nickForm.hidden = false;
   nick.value = user.nickname;
   pwUser.value = user.email;
@@ -99,9 +113,62 @@ nickForm.onsubmit = async (e) => {
   e.preventDefault();
   try {
     const { user } = await api('/api/account/nickname', { nickname: nick.value });
-    document.querySelector('.who-chip').textContent = user.nickname + '님';
+    refreshWho(user); showAvatar(user);
     ok(nickMsg, '닉네임을 바꿨어요.');
   } catch (x) { bad(nickMsg, x.message); }
+};
+
+// ── 프로필 사진: 브라우저에서 가운데를 정사각형으로 잘라 320px JPEG 로 줄인 뒤 올린다 ──
+const AV = 320;
+function showAvatar(user) {
+  avView.replaceChildren(avatar(user, 88));
+  avDel.hidden = !user.avatar;
+}
+function avNote(text, good) { avMsg.hidden = !text; avMsg.textContent = text; avMsg.classList.toggle('ok', !!good); }
+async function shrink(file) {
+  const img = new Image();
+  const src = URL.createObjectURL(file);
+  try {
+    img.src = src;
+    await img.decode();
+  } finally { URL.revokeObjectURL(src); }
+  const side = Math.min(img.naturalWidth, img.naturalHeight);
+  if (!side) throw new Error('사진을 열 수 없어요.');
+  const out = Math.min(AV, side);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = out;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, out, out); // 투명한 PNG 가 검게 나오지 않게
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, out, out);
+  return new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error('사진을 변환하지 못했어요.'))), 'image/jpeg', 0.86));
+}
+avPick.onclick = () => avFile.click();
+avFile.onchange = async () => {
+  const file = avFile.files[0];
+  avFile.value = '';
+  if (!file) return;
+  if (file.size > 30 * 1024 * 1024) return avNote('30MB 이하의 사진을 골라주세요.');
+  avPick.disabled = avDel.disabled = true;
+  avNote('');
+  try {
+    let blob;
+    try { blob = await shrink(file); } catch { throw new Error('이 사진은 열 수 없어요. JPG·PNG 사진으로 다시 골라주세요.'); }
+    const r = await fetch('/api/account/avatar', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || '사진을 올리지 못했어요.');
+    showAvatar(data.user); refreshWho(data.user);
+    avNote('프로필 사진을 바꿨어요.', true);
+  } catch (x) { avNote(x.message); }
+  avPick.disabled = avDel.disabled = false;
+};
+avDel.onclick = async () => {
+  if (!confirm('프로필 사진을 삭제할까요?')) return;
+  try {
+    const { user } = await api('/api/account/avatar/delete', {});
+    showAvatar(user); refreshWho(user);
+    avNote('프로필 사진을 삭제했어요.', true);
+  } catch (x) { avNote(x.message); }
 };
 
 pwForm.onsubmit = async (e) => {

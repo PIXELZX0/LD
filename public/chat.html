@@ -54,7 +54,8 @@ const id = Number(new URLSearchParams(location.search).get('id'));
 let me, c, note, review, canNote;
 function add(m) {
   msgs.append(el('div', { class: 'msg' + (m.sender_id === me.id ? ' me' : '') },
-    el('div', { class: 'who' }, m.nickname + (m.role === 'counselor' || m.role === 'admin' ? ' · ' + ROLE[m.role] : '') + ' · ' + fmt(m.created_at).slice(11)),
+    el('div', { class: 'who' }, m.sender_id === me.id ? null : avatar(m, 22),
+      el('span', {}, m.nickname + (m.role === 'counselor' || m.role === 'admin' ? ' · ' + ROLE[m.role] : '') + ' · ' + fmt(m.created_at).slice(11))),
     el('div', { class: 'b' }, m.body)));
   msgs.scrollTop = msgs.scrollHeight;
 }

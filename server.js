@@ -14,6 +14,7 @@ const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직
 const MAX_MSG = 2000;
 const MAX_NOTE = 5000;
 const MAX_REVIEW = 1000;
+const MAX_AVATAR = 512 * 1024; // 브라우저에서 줄여 보내므로 보통 수십 KB
 
 const app = express();
 app.set('trust proxy', 1);
@@ -34,7 +35,11 @@ const sessionMw = session({
 app.use(sessionMw);
 
 const q = async (sql, params) => (await pool.query(sql, params))[0];
-const pub = (x) => x && { id: x.id, nickname: x.nickname, role: x.role, is_anonymous: !!x.is_anonymous, email: x.email };
+// 프로필 사진 주소에 내용 해시를 붙여 바뀔 때마다 주소가 달라진다 → 오래 캐시해도 된다
+const avatarUrl = (id, hash) => (hash ? `/api/users/${id}/avatar?v=${hash}` : null);
+const pub = (x) => x && {
+  id: x.id, nickname: x.nickname, role: x.role, is_anonymous: !!x.is_anonymous, email: x.email, avatar: avatarUrl(x.id, x.avatar),
+};
 
 async function getUser(id) {
   if (!id) return null;
@@ -191,6 +196,56 @@ app.post('/api/account/nickname', auth(), wrap(async (req, res) => {
   res.json({ user: pub({ ...req.user, nickname }) });
 }));
 
+// ── 프로필 사진 ──
+// 형식은 파일 앞부분(매직 바이트)으로만 판단한다. 보낸 Content-Type 은 믿지 않는다.
+function imageType(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf.length > 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+app.post('/api/account/avatar', auth(), express.raw({ type: () => true, limit: MAX_AVATAR }), wrap(async (req, res) => {
+  if (req.user.is_anonymous) return res.status(403).json({ error: '회원만 프로필 사진을 정할 수 있어요.' });
+  const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const mime = imageType(data);
+  if (!mime) return res.status(400).json({ error: 'JPG·PNG·WEBP 사진만 올릴 수 있어요.' });
+  const hash = sha(data).slice(0, 16);
+  await q(`INSERT INTO avatars (user_id, mime, data) VALUES (?, ?, ?)
+    ON DUPLICATE KEY UPDATE mime = VALUES(mime), data = VALUES(data), updated_at = NOW()`, [req.user.id, mime, data]);
+  await q('UPDATE users SET avatar = ? WHERE id = ?', [hash, req.user.id]);
+  res.json({ user: pub({ ...req.user, avatar: hash }) });
+}));
+
+app.post('/api/account/avatar/delete', auth(), wrap(async (req, res) => {
+  await q('DELETE FROM avatars WHERE user_id = ?', [req.user.id]);
+  await q('UPDATE users SET avatar = NULL WHERE id = ?', [req.user.id]);
+  res.json({ user: pub({ ...req.user, avatar: null }) });
+}));
+
+// 상담 서비스라 사진도 아무에게나 보이지 않는다: 본인·관리자, 그리고 상담에서 마주치는 상대만
+async function canSeeAvatar(viewer, ownerId) {
+  if (viewer.id === ownerId || viewer.role === 'admin') return true;
+  const [row] = await q(`SELECT 1 FROM consultations WHERE (client_id = ? AND counselor_id = ?) OR (counselor_id = ? AND client_id = ?)
+    OR (client_id = ? AND status = 'waiting' AND ?) LIMIT 1`,
+  [ownerId, viewer.id, ownerId, viewer.id, ownerId, viewer.role === 'counselor' ? 1 : 0]);
+  return !!row;
+}
+
+app.get('/api/users/:id/avatar', auth(), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const [a] = Number.isInteger(id) && await canSeeAvatar(req.user, id)
+    ? await q('SELECT mime, data FROM avatars WHERE user_id = ?', [id]) : [];
+  if (!a) return res.status(404).json({ error: '사진이 없어요.' });
+  res.set({
+    'Content-Type': a.mime,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Cache-Control': req.query.v ? 'private, max-age=31536000, immutable' : 'private, no-cache',
+  });
+  res.send(a.data);
+}));
+
 // 다른 기기의 세션은 session_ver 를 올려 끊고, 지금 세션만 새 버전으로 다시 로그인
 async function bumpSessions(req) {
   await q('UPDATE users SET session_ver = session_ver + 1 WHERE id = ?', [req.user.id]);
@@ -340,6 +395,8 @@ app.post('/api/consultations', auth(), wrap(async (req, res) => {
   res.json({ id: r.insertId });
 }));
 
+const withAvatar = (m) => ({ ...m, avatar: avatarUrl(m.sender_id, m.avatar) });
+
 const LIST = `SELECT c.*, cl.nickname AS client_name, co.nickname AS counselor_name, r.rating
   FROM consultations c JOIN users cl ON cl.id = c.client_id LEFT JOIN users co ON co.id = c.counselor_id
   LEFT JOIN reviews r ON r.consultation_id = c.id`;
@@ -356,9 +413,9 @@ app.get('/api/consultations/:id', auth(), wrap(async (req, res) => {
   const c = await access(req.user, req.params.id);
   if (!c) return res.status(403).json({ error: '볼 수 없는 상담이에요.' });
   const [info] = await q(`${LIST} WHERE c.id = ?`, [c.id]);
-  const messages = await q(
-    `SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role
-     FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id]);
+  const messages = (await q(
+    `SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role, u.avatar
+     FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.consultation_id = ? ORDER BY m.id`, [c.id])).map(withAvatar);
   // 상담 기록: 담당 상담자·관리자만 / 후기: 내담자·담당 상담자·관리자
   const staffView = req.user.role === 'admin' || (c.counselor_id === req.user.id && isStaff(req.user));
   const [note] = staffView ? await q(`SELECT n.body, n.updated_at, u.nickname AS author
@@ -507,6 +564,8 @@ app.get('/api/admin/consultations', admin, wrap(async (req, res) => {
 app.use('/api', (req, res) => res.status(404).json({ error: '없는 주소예요.' }));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 app.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: '보낸 내용이 너무 커요.' });
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: '요청 형식이 잘못됐어요.' });
   console.error(err);
   res.status(500).json({ error: '서버 오류가 났어요.' });
 });
@@ -538,9 +597,9 @@ io.on('connection', async (socket) => {
         return ack?.({ error: '메시지를 보낼 수 없어요.' });
       if (!text || text.length > MAX_MSG) return ack?.({ error: `메시지는 1~${MAX_MSG}자로 해주세요.` });
       const r = await q('INSERT INTO messages (consultation_id, sender_id, body) VALUES (?, ?, ?)', [c.id, user.id, text]);
-      const [m] = await q(`SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role
+      const [m] = await q(`SELECT m.id, m.sender_id, m.body, m.created_at, u.nickname, u.role, u.avatar
         FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`, [r.insertId]);
-      io.to('c:' + c.id).emit('msg', m);
+      io.to('c:' + c.id).emit('msg', withAvatar(m));
       ack?.({ ok: true });
     } catch (e) {
       console.error(e);

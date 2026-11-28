@@ -24,6 +24,19 @@ const statusTag = (s) => el('span', { class: 'tag ' + s }, STATUS[s]);
 // 별점 표시 (읽기 전용)
 const stars = (n) => el('span', { class: 'rate', 'aria-label': `별점 ${n}점` }, '★'.repeat(n), el('i', {}, '★'.repeat(5 - n)));
 
+// 프로필 사진 (없거나 못 불러오면 닉네임 첫 글자)
+function avatar(u, size = 28) {
+  const initial = () => el('span', { class: 'avatar', style: `--size:${size}px`, 'aria-hidden': 'true' }, [...(u.nickname || '?')][0]);
+  if (!u.avatar) return initial();
+  const img = el('img', { class: 'avatar', style: `--size:${size}px`, src: u.avatar, alt: '', width: size, height: size, decoding: 'async' });
+  img.addEventListener('error', () => img.replaceWith(initial()), { once: true });
+  return img;
+}
+const whoName = (u) => u.nickname + (u.is_anonymous && !u.nickname.startsWith('익명') ? ' (익명)' : '') + '님';
+const whoChip = (u) => el('span', { class: 'who-chip' }, avatar(u, 26), el('span', {}, whoName(u)));
+// 내 정보에서 닉네임·사진을 바꾸면 상단바도 바로 바꾼다
+function refreshWho(u) { document.querySelectorAll('.who-chip').forEach((c) => c.replaceWith(whoChip(u))); }
+
 // 상단바를 그리고 로그인 정보를 돌려준다. need: true(로그인 필요) 또는 역할 배열
 async function boot(need) {
   const { user, categories } = await api('/api/me');
@@ -31,7 +44,7 @@ async function boot(need) {
   const link = (href, text) => el('a', { href, 'aria-current': here === href ? 'page' : false }, text);
   const nav = el('nav', { class: 'nav', 'aria-label': '주요 메뉴' });
   if (user) {
-    nav.append(el('span', { class: 'who-chip' }, user.nickname + (user.is_anonymous && !user.nickname.startsWith('익명') ? ' (익명)' : '') + '님'), link('/my', '내 상담'), link('/account', '내 정보'));
+    nav.append(whoChip(user), link('/my', '내 상담'), link('/account', '내 정보'));
     if (user.role === 'counselor' || user.role === 'admin') nav.append(link('/counselor', '상담자'), link('/records', '상담 기록'));
     if (user.role === 'admin') nav.append(link('/admin', '관리자'));
     nav.append(el('a', { href: '#', onclick: async (e) => { e.preventDefault(); await api('/api/logout', {}); location.href = '/'; } }, '로그아웃'));

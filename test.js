@@ -303,3 +303,53 @@ test('상담 기록·후기', async () => {
   assert.equal((await co(`/api/consultations/${cid}`)).body.note, null);
   assert.ok((await (await fetch(base + '/records')).text()).includes('상담 기록'));
 });
+
+test('프로필 사진', async () => {
+  const email = rnd() + '@t.io';
+  const me = client();
+  await me('/api/email/code', { email });
+  assert.equal((await me('/api/signup', { email, password: 'password1', nickname: '사진', code: lastCode(email) })).status, 200);
+  const { id } = (await me('/api/me')).body.user;
+  assert.equal((await me('/api/me')).body.user.avatar, null);
+  const raw = (call, path, body, type) => fetch(base + path, {
+    method: body === undefined ? 'GET' : 'POST', headers: { cookie: call.cookie(), ...(type && { 'Content-Type': type }) }, body,
+  });
+
+  // 형식은 파일 내용으로 판단: 이미지 아닌 것·너무 큰 것은 거부
+  assert.equal((await raw(me, '/api/account/avatar', '<svg onload=alert(1)>', 'image/jpeg')).status, 400);
+  assert.equal((await raw(me, '/api/account/avatar', Buffer.alloc(600 * 1024, 0xff), 'image/jpeg')).status, 413);
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), crypto.randomBytes(64)]);
+  const up = await raw(me, '/api/account/avatar', jpg, 'image/jpeg');
+  assert.equal(up.status, 200);
+  const url = (await up.json()).user.avatar;
+  assert.match(url, new RegExp(`^/api/users/${id}/avatar\\?v=[0-9a-f]{16}$`));
+  assert.equal((await me('/api/me')).body.user.avatar, url);
+  const got = await raw(me, url);
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get('content-type'), 'image/jpeg');
+  assert.equal(got.headers.get('x-content-type-options'), 'nosniff');
+  assert.ok(Buffer.from(await got.arrayBuffer()).equals(jpg));
+
+  // 상담에서 마주치지 않은 사람·비로그인에게는 안 보인다
+  const stranger = client(); await stranger('/api/anon', {});
+  assert.equal((await raw(stranger, url)).status, 404);
+  assert.equal((await fetch(base + url)).status, 401);
+  const adm = client();
+  await adm('/api/login', { email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
+  assert.equal((await raw(adm, url)).status, 200);
+
+  // 상담을 맡은 상담자에게는 보이고, 메시지에도 사진 주소가 실린다
+  const { id: cid } = (await me('/api/consultations', { category: '연애', title: '사진 테스트', body: '안녕하세요' })).body;
+  assert.equal((await adm(`/api/consultations/${cid}/accept`, {})).status, 200);
+  const msgs = (await adm(`/api/consultations/${cid}`)).body.messages;
+  assert.equal(msgs[0].avatar, url);
+
+  // 익명은 사진을 정할 수 없다
+  const anon = client(); await anon('/api/anon', {});
+  assert.equal((await raw(anon, '/api/account/avatar', jpg, 'image/jpeg')).status, 403);
+
+  // 삭제
+  assert.equal((await me('/api/account/avatar/delete', {})).body.user.avatar, null);
+  assert.equal((await raw(me, url)).status, 404);
+  assert.equal((await me('/api/me')).body.user.avatar, null);
+});
