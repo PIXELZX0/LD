@@ -161,7 +161,7 @@ td.nowrap { white-space: nowrap; }
 /* 하단 */
 .foot { border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
 .foot-in { max-width: var(--max); margin: 0 auto; padding: 24px var(--gutter) 32px; display: flex; gap: 8px 24px; justify-content: space-between; flex-wrap: wrap; }
-.foot nav { display: flex; gap: 16px; }
+.foot nav { display: flex; gap: 6px 16px; flex-wrap: wrap; }
 .foot a { text-decoration: none; } .foot a:hover { color: var(--rose); }
 .foot .help b { color: var(--ink); font-weight: 600; }
 
@@ -289,3 +289,33 @@ dialog.sheet textarea { min-height: 220px; }
   .rec-body { grid-template-columns: 1fr; }
   .filters select { flex: 1 1 40%; }
 }
+
+/* 회원가입 약관 동의 */
+.agree { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 16px 10px; margin: 4px 0 0; min-width: 0; }
+.agree legend { font-size: .88rem; font-weight: 600; padding: 0 6px; margin-left: -6px; }
+label.check { display: flex; align-items: flex-start; gap: 10px; font-weight: 500; font-size: .9rem; cursor: pointer; flex: 1; min-width: 0; }
+label.check input { flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; margin: 1px 0 0; accent-color: var(--rose); cursor: pointer; }
+label.check input:focus { box-shadow: none; }
+label.check input:focus-visible { outline: 2px solid var(--rose); outline-offset: 2px; }
+label.check em { font-style: normal; font-size: .75rem; font-weight: 700; color: var(--rose); margin-right: 4px; }
+label.check.all { font-weight: 700; font-size: .95rem; padding: 12px 0; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.agree-item { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 10px; padding: 8px 0; }
+.agree-item .more { flex: none; border: 0; background: none; padding: 0 2px; font: inherit; font-size: .8rem; color: var(--muted); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+.agree-item .more:hover { color: var(--rose); }
+.agree-body { flex-basis: 100%; margin: 6px 0 2px 30px; padding: 12px 14px; background: var(--tint); border-radius: 12px; font-size: .8rem; color: var(--muted); }
+.agree-body table { font-size: .8rem; margin-bottom: 8px; }
+.agree-body th, .agree-body td { padding: 5px 0; border: 0; background: none; }
+.agree-body th { padding-right: 12px; font-size: .78rem; }
+.agree-body td { color: var(--ink); }
+.agree-body p { margin: 0 0 4px; } .agree-body p:last-child { margin: 0; }
+
+/* 약관 · 개인정보처리방침 */
+.legal h2 { margin-top: 40px; }
+.legal p, .legal li { font-size: .95rem; }
+.legal ol, .legal ul { padding-left: 1.3em; margin: 0 0 12px; display: grid; gap: 6px; }
+.legal .table-wrap { margin: 0 0 12px; }
+.legal th { white-space: nowrap; }
+.legal tbody th { width: 1%; border-bottom: 1px solid var(--line); }
+.legal tbody tr:last-child th { border-bottom: 0; }
+.legal :target { scroll-margin-top: 96px; }
+@media (max-width: 720px) { .agree-body { margin-left: 0; } }

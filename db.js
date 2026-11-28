@@ -17,6 +17,8 @@ async function init() {
   };
   await addColumn('users', 'session_ver', 'INT NOT NULL DEFAULT 0');
   await addColumn('users', 'avatar', 'CHAR(16) NULL');
+  await addColumn('users', 'terms_ver', 'VARCHAR(10) NULL'); // 동의한 약관 판(시행일)
+  await addColumn('users', 'agreed_at', 'DATETIME NULL');
 
   const { ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
   if (ADMIN_EMAIL && ADMIN_PASSWORD) {

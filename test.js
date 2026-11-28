@@ -77,7 +77,9 @@ function softPasskey(origin) {
 test('전체 흐름', async () => {
   const home = await (await fetch(base + '/')).text();
   assert.match(home, /당신에게 맞는<\/em> 사랑을 조각해드립니다/);
-  for (const t of ['익명으로 이용하기', '회원으로 이용하기', 'href="/guide"', 'href="/about"', 'href="/login"']) assert.ok(home.includes(t), t);
+  for (const t of ['익명으로 이용하기', '회원으로 이용하기', 'href="/guide"', 'href="/about"', 'href="/login"', 'href="/terms"', 'href="/privacy"']) assert.ok(home.includes(t), t);
+  for (const [page, t] of [['/terms', '이용약관'], ['/privacy', '국외 이전'], ['/signup', '개인정보 수집·이용 동의']])
+    assert.ok((await (await fetch(base + page)).text()).includes(t), page);
   assert.equal((await fetch(base + '/healthz')).status, 200);
 
   // 익명 유저 → 상담 요청
@@ -93,7 +95,7 @@ test('전체 흐름', async () => {
   // 이메일 인증
   const coun = client();
   const email = rnd() + '@t.io';
-  const form = { email, password: 'password1', nickname: '상담이' };
+  const form = { email, password: 'password1', nickname: '상담이', agree: true };
   assert.equal((await coun('/api/signup', form)).status, 400); // 인증번호 없음
   assert.equal((await coun('/api/signup', { ...form, code: '123456' })).status, 400); // 발송 전
   assert.equal((await coun('/api/email/code', { email })).status, 200);
@@ -101,7 +103,10 @@ test('전체 흐름', async () => {
   const code = lastCode(email);
   const wrong = code === '000000' ? '111111' : '000000';
   assert.equal((await coun('/api/signup', { ...form, code: wrong })).status, 400);
+  assert.equal((await coun('/api/signup', { ...form, code, agree: false })).status, 400); // 약관 미동의
   assert.equal((await coun('/api/signup', { ...form, code })).status, 200);
+  const [agreed] = (await pool.query('SELECT terms_ver, agreed_at FROM users WHERE email = ?', [email]))[0];
+  assert.ok(agreed.terms_ver && agreed.agreed_at, '약관 동의 시각이 남아야 함');
   assert.equal((await coun('/api/email/code', { email })).status, 409); // 이미 가입
   assert.equal((await client()('/api/email/code', { email: process.env.ADMIN_EMAIL })).status, 409);
   assert.equal((await coun('/api/consultations/waiting')).status, 403);
@@ -147,7 +152,7 @@ test('패스키', async () => {
   const email = rnd() + '@t.io';
   const me = client();
   await me('/api/email/code', { email });
-  assert.equal((await me('/api/signup', { email, password: 'password1', nickname: '패스키', code: lastCode(email) })).status, 200);
+  assert.equal((await me('/api/signup', { email, password: 'password1', nickname: '패스키', code: lastCode(email), agree: true })).status, 200);
   const key = softPasskey(base);
 
   // 익명·비로그인은 등록 불가
@@ -197,7 +202,7 @@ test('내 정보', async () => {
   const email = rnd() + '@t.io';
   const me = client();
   await me('/api/email/code', { email });
-  assert.equal((await me('/api/signup', { email, password: 'password1', nickname: '처음', code: lastCode(email) })).status, 200);
+  assert.equal((await me('/api/signup', { email, password: 'password1', nickname: '처음', code: lastCode(email), agree: true })).status, 200);
   const other = client(); // 같은 계정의 다른 기기
   assert.equal((await other('/api/login', { email, password: 'password1' })).status, 200);
 
@@ -237,7 +242,7 @@ test('상담 기록·후기', async () => {
   async function counselor(nickname) {
     const call = client(), email = rnd() + '@t.io';
     await call('/api/email/code', { email });
-    assert.equal((await call('/api/signup', { email, password: 'password1', nickname, code: lastCode(email) })).status, 200);
+    assert.equal((await call('/api/signup', { email, password: 'password1', nickname, code: lastCode(email), agree: true })).status, 200);
     await call('/api/apply', { intro: '열 글자 넘는 자기소개입니다' });
     const app = (await adm('/api/admin/applications')).body.find((x) => x.email === email);
     assert.equal((await adm(`/api/admin/applications/${app.id}/approve`, {})).status, 200);
@@ -308,7 +313,7 @@ test('프로필 사진', async () => {
   const email = rnd() + '@t.io';
   const me = client();
   await me('/api/email/code', { email });
-  assert.equal((await me('/api/signup', { email, password: 'password1', nickname: '사진', code: lastCode(email) })).status, 200);
+  assert.equal((await me('/api/signup', { email, password: 'password1', nickname: '사진', code: lastCode(email), agree: true })).status, 200);
   const { id } = (await me('/api/me')).body.user;
   assert.equal((await me('/api/me')).body.user.avatar, null);
   const raw = (call, path, body, type) => fetch(base + path, {

@@ -125,6 +125,8 @@
     text-align: center; font-size: .72rem; letter-spacing: .14em;
     color: var(--soft);
   }
+  footer a { color: inherit; text-decoration: none; letter-spacing: .04em; }
+  footer a:hover { color: var(--rose); }
 
   @media (prefers-reduced-motion: no-preference) {
     main { animation: rise 1s cubic-bezier(.2,.7,.2,1) both; }
@@ -191,7 +193,7 @@
     </nav>
     <p class="hint" id="hint">처음이라면 <a href="/guide">이용방법</a>부터 살펴보세요</p>
   </main>
-  <footer>yourloveour.design</footer>
+  <footer><a href="/terms">이용약관</a> · <a href="/privacy"><b>개인정보처리방침</b></a> · yourloveour.design</footer>
 
 <script>
 document.getElementById('anon').addEventListener('click', async function () {

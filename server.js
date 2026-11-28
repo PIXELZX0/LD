@@ -14,6 +14,8 @@ const CATEGORIES = ['연애', '인간관계', '진로', '학업', '가족', '직
 const MAX_MSG = 2000;
 const MAX_NOTE = 5000;
 const MAX_REVIEW = 1000;
+// 약관·개인정보처리방침 시행일 — 문서를 바꾸면 함께 올려서 회원이 어느 판에 동의했는지 남긴다
+const TERMS_VER = '2026-11-28';
 const MAX_AVATAR = 512 * 1024; // 브라우저에서 줄여 보내므로 보통 수십 KB
 
 const app = express();
@@ -147,6 +149,7 @@ app.post('/api/signup', wrap(async (req, res) => {
   if (password.length < 8 || password.length > 72) return res.status(400).json({ error: '비밀번호는 8~72자로 해주세요.' });
   if (nickname.length < 1 || nickname.length > 20) return res.status(400).json({ error: '닉네임은 1~20자로 해주세요.' });
   if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: '이메일로 받은 6자리 인증번호를 입력해주세요.' });
+  if (req.body.agree !== true) return res.status(400).json({ error: '필수 약관에 모두 동의해주세요.' });
   // 시도 횟수를 먼저 원자적으로 올린다 → 동시 요청으로 5회 제한을 넘길 수 없다
   const r0 = await q('UPDATE email_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < 5 AND expires_at > NOW()', [email]);
   if (!r0.affectedRows) return res.status(400).json({ error: '인증번호가 만료됐어요. 다시 받아주세요.' });
@@ -154,8 +157,8 @@ app.post('/api/signup', wrap(async (req, res) => {
   if (!ec || !crypto.timingSafeEqual(Buffer.from(sha(code)), Buffer.from(ec.code_hash)))
     return res.status(400).json({ error: '인증번호가 맞지 않아요.' });
   try {
-    const r = await q('INSERT INTO users (email, password_hash, nickname) VALUES (?, ?, ?)',
-      [email, await bcrypt.hash(password, 10), nickname]);
+    const r = await q('INSERT INTO users (email, password_hash, nickname, terms_ver, agreed_at) VALUES (?, ?, ?, ?, NOW())',
+      [email, await bcrypt.hash(password, 10), nickname, TERMS_VER]);
     await q('DELETE FROM email_codes WHERE email = ?', [email]);
     const user = await getUser(r.insertId);
     await login(req, user);

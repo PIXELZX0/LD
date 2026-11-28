@@ -27,8 +27,57 @@
     <p class="muted" id="info"></p>
     <label>비밀번호 (8자 이상) <input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
     <label>닉네임 <input name="nickname" maxlength="20" required></label>
+    <fieldset class="agree">
+      <legend>약관 동의</legend>
+      <label class="check all"><input type="checkbox" id="agreeAll"><span>아래 내용에 모두 동의해요</span></label>
+      <div class="agree-item">
+        <label class="check"><input type="checkbox" data-agree required><span><em>필수</em> 만 14세 이상이에요</span></label>
+      </div>
+      <div class="agree-item">
+        <label class="check"><input type="checkbox" data-agree required><span><em>필수</em> 이용약관 동의</span></label>
+        <a class="more" href="/terms" target="_blank" rel="noopener">보기</a>
+      </div>
+      <div class="agree-item">
+        <label class="check"><input type="checkbox" data-agree required><span><em>필수</em> 개인정보 수집·이용 동의</span></label>
+        <button type="button" class="more" aria-expanded="false" aria-controls="ag-collect">보기</button>
+        <div class="agree-body" id="ag-collect" hidden>
+          <table>
+            <tbody>
+              <tr><th>항목</th><td>이메일, 비밀번호(암호화), 닉네임, 상담·채팅 내용, 접속 IP·쿠키</td></tr>
+              <tr><th>목적</th><td>회원 식별·로그인, 1:1 상담 제공과 기록 보관, 부정 이용 방지</td></tr>
+              <tr><th>보유 기간</th><td><b>회원 탈퇴 시까지</b> (접속 기록은 3개월)</td></tr>
+            </tbody>
+          </table>
+          <p>동의하지 않을 수 있지만, 그러면 회원가입을 할 수 없어요. 자세한 내용은 <a href="/privacy" target="_blank" rel="noopener">개인정보처리방침</a>에 있어요.</p>
+        </div>
+      </div>
+      <div class="agree-item">
+        <label class="check"><input type="checkbox" data-agree required><span><em>필수</em> 민감정보 처리 동의</span></label>
+        <button type="button" class="more" aria-expanded="false" aria-controls="ag-sensitive">보기</button>
+        <div class="agree-body" id="ag-sensitive" hidden>
+          <p>상담 내용에는 건강·정신 건강, 성생활 등에 관한 <b>민감정보</b>가 담길 수 있어요. 이 정보는 상담 제공 목적으로만 처리하고, 회원 탈퇴 시까지 보관해요.</p>
+          <p>동의하지 않을 수 있지만, 그러면 상담 서비스를 이용할 수 없어요.</p>
+        </div>
+      </div>
+      <div class="agree-item">
+        <label class="check"><input type="checkbox" data-agree required><span><em>필수</em> 개인정보 국외 이전 동의</span></label>
+        <button type="button" class="more" aria-expanded="false" aria-controls="ag-overseas">보기</button>
+        <div class="agree-body" id="ag-overseas" hidden>
+          <table>
+            <tbody>
+              <tr><th>이전받는 자</th><td>Oracle Corporation (Oracle Cloud)</td></tr>
+              <tr><th>이전 국가</th><td>미국 (버지니아주 애쉬번)</td></tr>
+              <tr><th>일시·방법</th><td>서비스 이용 시 HTTPS로 수시 전송</td></tr>
+              <tr><th>항목</th><td>위 개인정보 수집 항목 전부</td></tr>
+              <tr><th>목적·기간</th><td>서버 운영·데이터 보관, 회원 탈퇴 시까지</td></tr>
+            </tbody>
+          </table>
+          <p>서비스의 모든 데이터가 이 서버에 저장돼서, 동의하지 않으면 회원가입을 할 수 없어요.</p>
+        </div>
+      </div>
+    </fieldset>
     <p class="err" id="err"></p>
-    <button class="btn primary">가입하기</button>
+    <button class="btn primary">동의하고 가입하기</button>
   </form>
   <p class="muted panel-foot">이미 회원이신가요? <a href="/login">로그인</a></p>
  </div>
@@ -52,9 +101,22 @@ send.onclick = async () => {
     }, 1000);
   } catch (x) { err.textContent = x.message; send.disabled = false; }
 };
+// 약관 동의: 전체 동의 ↔ 개별 항목, '보기'는 요약을 펼친다
+const items = [...f.querySelectorAll('[data-agree]')];
+agreeAll.onchange = () => items.forEach((c) => { c.checked = agreeAll.checked; });
+items.forEach((c) => { c.onchange = () => { agreeAll.checked = items.every((x) => x.checked); }; });
+f.querySelectorAll('button.more').forEach((b) => {
+  b.onclick = () => {
+    const box = document.getElementById(b.getAttribute('aria-controls'));
+    box.hidden = !box.hidden;
+    b.setAttribute('aria-expanded', String(!box.hidden));
+    b.textContent = box.hidden ? '보기' : '접기';
+  };
+});
 f.onsubmit = async (e) => {
   e.preventDefault();
-  try { await api('/api/signup', Object.fromEntries(new FormData(f))); location.href = '/my'; }
+  const body = { ...Object.fromEntries(new FormData(f)), agree: items.every((c) => c.checked) };
+  try { await api('/api/signup', body); location.href = '/my'; }
   catch (x) { err.textContent = x.message; }
 };
 </script>

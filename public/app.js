@@ -95,7 +95,8 @@ async function boot(need) {
   document.body.prepend(topbar(user));
   if (!document.querySelector('main.chat')) {
     document.body.append(el('footer', { class: 'foot' }, el('div', { class: 'foot-in' },
-      el('nav', { 'aria-label': '사이트 안내' }, el('a', { href: '/guide' }, '이용방법안내'), el('a', { href: '/about' }, '사이트 소개')),
+      el('nav', { 'aria-label': '사이트 안내' }, el('a', { href: '/guide' }, '이용방법안내'), el('a', { href: '/about' }, '사이트 소개'),
+        el('a', { href: '/terms' }, '이용약관'), el('a', { href: '/privacy' }, el('b', {}, '개인정보처리방침'))),
       el('span', { class: 'help' }, '위급할 땐 ', el('b', {}, '109'), ' 자살예방상담 · ', el('b', {}, '1577-0199'), ' 정신건강위기상담 · ', el('b', {}, '112·119')),
       el('span', {}, '© Love Design'))));
   }
